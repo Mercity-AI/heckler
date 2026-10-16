@@ -1,0 +1,109 @@
+"""The attacker/evaluator agent: role-plays a scenario against the target, then grades it."""
+
+from __future__ import annotations
+
+import secrets
+from dataclasses import dataclass
+
+from ..domain.models import AgentProfile, ChatMessage, EndReason, Evaluation, Scenario, TranscriptMessage, Usage
+from ..llm.base import LLMError, LLMProvider, LLMResponse
+from . import prompts
+from .parsing import EvaluationParseError, parse_evaluation
+
+_END_NOTES = {
+    EndReason.ATTACKER_ENDED: "You ended the conversation.",
+    EndReason.MAX_TURNS: "The conversation reached its maximum length.",
+    EndReason.TARGET_ERROR: "The agent stopped responding (endpoint error). Grade what it said before that.",
+}
+
+
+@dataclass
+class AttackerTurn:
+    text: str
+    wants_to_end: bool
+
+
+class AttackerAgent:
+    """Stateless with respect to the transcript: every call rebuilds messages from it.
+
+    That keeps the conversation runner the single owner of conversation state, and makes the
+    attacker's view (target replies as `user`, its own lines as `assistant`) a pure function.
+    """
+
+    def __init__(
+        self,
+        *,
+        profile: AgentProfile,
+        provider: LLMProvider,
+        scenario: Scenario,
+        target_name: str,
+        target_system_prompt: str,
+        max_turns: int,
+        max_repair_attempts: int = 1,
+    ) -> None:
+        self.profile = profile
+        self._provider = provider
+        self._secret = secrets.token_hex(6)
+        self._max_repairs = max_repair_attempts
+        self._ended_with_bare_token = False
+        self.usage = Usage()
+        self._system = prompts.attacker_system_prompt(
+            profile=profile,
+            scenario=scenario,
+            target_name=target_name,
+            target_system_prompt=target_system_prompt,
+            max_turns=max_turns,
+            secret=self._secret,
+        )
+
+    async def next_message(self, transcript: list[TranscriptMessage]) -> AttackerTurn:
+        response = await self._call(self._history(transcript))
+        text = response.text.strip()
+        wants_to_end = prompts.END_TOKEN in text
+        text = text.replace(prompts.END_TOKEN, "").strip()
+        if not text and not wants_to_end:
+            raise LLMError(f"{self.profile.name} produced an empty message.")
+        # A bare END reply never reaches the target, so it is not in the transcript; remember it so
+        # the grading call replays the attacker's real last turn.
+        self._ended_with_bare_token = wants_to_end and not text
+        return AttackerTurn(text=text, wants_to_end=wants_to_end)
+
+    async def evaluate(self, transcript: list[TranscriptMessage], end_reason: EndReason) -> Evaluation:
+        history = self._history(transcript)
+        if self._ended_with_bare_token:
+            history.append(ChatMessage(role="assistant", content=prompts.END_TOKEN))
+        note = _END_NOTES.get(end_reason, "The conversation is over.")
+        history.append(ChatMessage(role="user", content=prompts.evaluation_request(self._secret, note)))
+
+        last_error: EvaluationParseError | None = None
+        for _ in range(self._max_repairs + 1):
+            response = await self._call(history, max_tokens=max(self.profile.model.max_tokens, 8192))
+            try:
+                return parse_evaluation(response.text)
+            except EvaluationParseError as exc:
+                last_error = exc
+                history.append(ChatMessage(role="assistant", content=response.text))
+                history.append(ChatMessage(role="user", content=prompts.repair_request(self._secret, str(exc))))
+        raise LLMError(f"{self.profile.name} did not return a valid evaluation: {last_error}")
+
+    def _history(self, transcript: list[TranscriptMessage]) -> list[ChatMessage]:
+        history = [ChatMessage(role="user", content=prompts.KICKOFF_MESSAGE)]
+        for message in transcript:
+            if message.role == "attacker":
+                history.append(ChatMessage(role="assistant", content=message.content))
+            else:
+                history.append(ChatMessage(role="user", content=prompts.wrap_target_reply(message.content)))
+        return history
+
+    async def _call(self, history: list[ChatMessage], max_tokens: int | None = None) -> LLMResponse:
+        spec = self.profile.model
+        response = await self._provider.complete(
+            model=spec.model,
+            system=self._system,
+            messages=history,
+            max_tokens=max_tokens or spec.max_tokens,
+            temperature=spec.temperature,
+            cache_system=True,
+        )
+        self.usage.add(response.input_tokens, response.output_tokens)
+        return response
