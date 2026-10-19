@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     attacker_provider: str = "openrouter"
     attacker_model: str = "anthropic/claude-opus-5.5"
     # Generous: Claude Opus 5.5 always thinks, and thinking tokens count against this budget.
-    attacker_max_tokens: int = 8192
+    # 16384 stays under the Anthropic SDK's non-streaming ceiling (~21k), and calls to OpenRouter
+    # are lowered to the model's own output cap (see llm.openrouter).
+    attacker_max_tokens: int = 16384
     # Anthropic-only knobs (ignored by other providers).
     anthropic_effort: str = "medium"
     anthropic_refusal_fallbacks: bool = True

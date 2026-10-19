@@ -10,6 +10,7 @@ import { Backdrop } from '../components/visual/Backdrop'
 import { api } from '../lib/api'
 import { EXAMPLE_AGENTS } from '../lib/examples'
 import { connectionSummary } from '../lib/agentMeta'
+import { cn } from '../lib/format'
 import { useConfig, useTargets } from '../lib/queries'
 
 const fadeUp = (i: number) => ({
@@ -17,6 +18,12 @@ const fadeUp = (i: number) => ({
   animate: { opacity: 1, y: 0 },
   transition: { duration: 0.5, delay: 0.06 * i, ease: [0.22, 1, 0.36, 1] as const },
 })
+
+const HOW_IT_WORKS = [
+  { title: 'Connect your agent', body: 'Its endpoint, plus the system prompt it runs with. That prompt is the policy.' },
+  { title: 'The tester agent talks to it', body: 'It writes realistic users from your prompt and chats with your agent, many at once.' },
+  { title: 'See how it behaves', body: 'Watch every chat live. Each is graded, with the exact lines quoted where it slipped.' },
+]
 
 /**
  * "See an example": open the curated run if the deployment pins one, otherwise run the free offline
@@ -52,7 +59,7 @@ export function HomePage() {
           <h1 className="mt-3 max-w-[20ch] font-serif text-[44px] leading-[1.04] font-[380] tracking-[-0.02em] text-ink">
             See how your agent behaves <em className="font-[420] text-indigo-600">before</em> your users do.
           </h1>
-          <p className="mt-4 max-w-[52ch] text-[14.5px] leading-relaxed text-ink-2">
+          <p className="mt-4 max-w-[68ch] text-[14.5px] leading-relaxed text-pretty text-ink-2">
             Connect your agent. Heckler writes realistic users from its system prompt, talks to it in parallel, and grades every conversation with quoted evidence.
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -63,6 +70,15 @@ export function HomePage() {
             {example.error && <span className="text-[12.5px] text-fail">{(example.error as Error).message}</span>}
           </div>
         </div>
+        <ol className="grid border-t border-white/60 bg-white/35 backdrop-blur-sm sm:grid-cols-3">
+          {HOW_IT_WORKS.map((step, i) => (
+            <li key={step.title} className={cn('px-10 py-5 sm:px-6 sm:first:pl-10 sm:last:pr-10', i > 0 && 'border-t border-white/60 sm:border-t-0 sm:border-l')}>
+              <span className="font-mono text-[10.5px] font-medium tracking-[0.08em] text-indigo-700/70">0{i + 1}</span>
+              <div className="mt-1.5 font-display text-[14px] font-semibold tracking-[-0.01em] text-ink">{step.title}</div>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-pretty text-ink-3">{step.body}</p>
+            </li>
+          ))}
+        </ol>
       </motion.div>
 
       {saved.length > 0 && (

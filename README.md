@@ -68,7 +68,7 @@ All settings come from environment variables or `.env` (see `.env.example`). Pro
 | `HECKLER_EXAMPLE_RUN_ID` | – | run shown by the UI's "See an example" button (unset: an offline demo runs) |
 | `HECKLER_ATTACKER_PROVIDER` | `openrouter` | default evaluator for agents without their own: `openrouter` \| `anthropic` \| `openai` \| `fake` |
 | `HECKLER_ATTACKER_MODEL` | `anthropic/claude-opus-5.5` | use `claude-opus-5-5` with the `anthropic` provider |
-| `HECKLER_ATTACKER_MAX_TOKENS` | `8192` | per attacker turn (thinking counts toward this on Claude) |
+| `HECKLER_ATTACKER_MAX_TOKENS` | `16384` | per attacker turn (thinking counts toward this on Claude; lowered to the model's output cap on OpenRouter) |
 | `HECKLER_ANTHROPIC_EFFORT` | `medium` | native Anthropic only: `low`…`max` |
 | `HECKLER_ANTHROPIC_REFUSAL_FALLBACKS` | `true` | native Anthropic only: server-side refusal fallback |
 | `HECKLER_SIMULA_PROVIDER` | `openrouter` | provider for scenario generation |

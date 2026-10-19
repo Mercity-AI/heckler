@@ -8,6 +8,7 @@ import openai
 from openai import AsyncOpenAI
 
 from ..domain.models import ChatMessage, OpenAIChatConnection
+from ..llm.openrouter import clamp_max_tokens
 from .base import TargetClient, TargetError
 
 
@@ -30,7 +31,8 @@ class OpenAIChatTarget(TargetClient):
         if self._conn.send_system_prompt:
             messages.append({"role": "system", "content": self._system_prompt})
         messages += [{"role": m.role, "content": m.content} for m in history]
-        kwargs: dict[str, Any] = {"model": self._conn.model, "messages": messages, "max_tokens": self._conn.max_tokens}
+        max_tokens = await clamp_max_tokens(self._conn.base_url, self._conn.model, self._conn.max_tokens)
+        kwargs: dict[str, Any] = {"model": self._conn.model, "messages": messages, "max_tokens": max_tokens}
         if self._conn.temperature is not None:
             kwargs["temperature"] = self._conn.temperature
         try:

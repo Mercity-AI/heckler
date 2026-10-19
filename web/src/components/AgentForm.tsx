@@ -72,7 +72,7 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
   const [model, setModel] = useState(ic?.kind === 'openai_chat' ? ic.model : '')
   const [apiKey, setApiKey] = useState('')
   const [sendPrompt, setSendPrompt] = useState(ic?.kind === 'openai_chat' ? (ic.send_system_prompt ?? true) : true)
-  const [maxTokens, setMaxTokens] = useState(String(ic?.kind === 'openai_chat' ? (ic.max_tokens ?? 2048) : 2048))
+  const [maxTokens, setMaxTokens] = useState(String(ic?.kind === 'openai_chat' ? (ic.max_tokens ?? 16384) : 16384))
   const [temperature, setTemperature] = useState(ic?.kind === 'openai_chat' && ic.temperature != null ? String(ic.temperature) : '')
   const [advanced, setAdvanced] = useState(false)
 
@@ -118,7 +118,7 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
         api_key: apiKey || (savedTargetKey ? '***' : null),
         api_key_env: keepEnv ? savedEnv : null,
         send_system_prompt: sendPrompt,
-        max_tokens: Number(maxTokens) || 2048,
+        max_tokens: Number(maxTokens) || 16384,
         temperature: temperature === '' ? null : Number(temperature),
       }
     } else if (kind === 'http') {

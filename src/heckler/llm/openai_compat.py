@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 
 from ..domain.models import ChatMessage
 from .base import LLMError, LLMProvider, LLMResponse
+from .openrouter import clamp_max_tokens
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -57,6 +58,7 @@ class OpenAICompatibleProvider(LLMProvider):
         payload: list[dict[str, Any]] = [{"role": "system", "content": self._system_content(model, system, cache_system)}]
         # One chat message per conversation message; OpenAI-compatible APIs accept same-role neighbours.
         payload += [{"role": m.role, "content": m.content} for m in messages]
+        max_tokens = await clamp_max_tokens(self._base_url, model, max_tokens)
         kwargs: dict[str, Any] = {"model": model, "messages": payload, "max_tokens": max_tokens}
         if temperature is not None:
             kwargs["temperature"] = temperature
