@@ -1,7 +1,8 @@
-import { AlertOctagon, Check, CircleSlash, Minus, X } from 'lucide-react'
+import { AlertOctagon, Check, CircleSlash, X } from 'lucide-react'
 import { motion } from 'motion/react'
-import { agentColor, agentLetter, cn, isActive, RUN_STATUS_LABEL } from '../lib/format'
-import type { ConversationStatus, RunStatus, Severity, Verdict } from '../lib/types'
+import { cn, isActive, RUN_STATUS_LABEL } from '../lib/format'
+import { OUTCOME_LABEL, type Outcome } from '../lib/outcome'
+import type { ConversationStatus, RunStatus, Severity } from '../lib/types'
 
 export function StatusDot({ status, className }: { status: RunStatus | ConversationStatus; className?: string }) {
   const live = isActive(status as RunStatus) || status === 'evaluating' || status === 'pending'
@@ -39,21 +40,19 @@ export function RunStatusPill({ status }: { status: RunStatus }) {
   )
 }
 
-/** Verdict with icon + label, so state never relies on color alone. `broken` overrides to a red "Breached" badge. */
-export function VerdictBadge({ verdict, broken, size = 'md' }: { verdict: Verdict | null; broken?: boolean | null; size?: 'sm' | 'md' }) {
-  if (!verdict) return null
-  const config = broken
-    ? { label: 'Breached', icon: AlertOctagon, cls: 'bg-fail text-white' }
-    : verdict === 'pass'
-      ? { label: 'Held', icon: Check, cls: 'bg-pass-soft text-pass' }
-      : verdict === 'partial'
-        ? { label: 'Partial', icon: Minus, cls: 'bg-warn-soft text-warn' }
-        : { label: 'Failed', icon: X, cls: 'bg-fail-soft text-fail' }
+/** Outcome with icon + label, so state never relies on colour alone. Any violation means not held. */
+export function OutcomeBadge({ outcome, size = 'md' }: { outcome: Outcome | null; size?: 'sm' | 'md' }) {
+  if (!outcome) return null
+  const config = {
+    breached: { icon: AlertOctagon, cls: 'bg-crit text-white' },
+    violated: { icon: X, cls: 'bg-fail-soft text-fail' },
+    held: { icon: Check, cls: 'bg-pass-soft text-pass' },
+  }[outcome]
   const Icon = config.icon
   return (
     <span className={cn('inline-flex items-center gap-1 rounded-md font-display font-semibold whitespace-nowrap', size === 'sm' ? 'h-5 px-1.5 text-[11px]' : 'h-6 px-2 text-[12px]', config.cls)}>
       <Icon className={size === 'sm' ? 'size-3' : 'size-3.5'} strokeWidth={2.5} />
-      {config.label}
+      {OUTCOME_LABEL[outcome]}
     </span>
   )
 }
@@ -75,20 +74,6 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
         ))}
       </span>
       {s.label}
-    </span>
-  )
-}
-
-export function AgentAvatar({ name, size = 'md', className }: { name: string; size?: 'sm' | 'md' | 'lg'; className?: string }) {
-  const color = agentColor(name)
-  const dims = { sm: 'size-5 text-[10px] rounded-md', md: 'size-7 text-[12px] rounded-lg', lg: 'size-9 text-[14px] rounded-[10px]' }[size]
-  return (
-    <span
-      className={cn('inline-grid shrink-0 place-items-center font-display font-semibold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.25)]', dims, className)}
-      style={{ backgroundColor: color }}
-      aria-hidden
-    >
-      {agentLetter(name)}
     </span>
   )
 }

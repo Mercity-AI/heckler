@@ -44,6 +44,8 @@ def _target_to_json(target: Target) -> str:
     # SecretStr serialises as "**********"; persist the real value (the API layer masks it on the way out).
     if isinstance(target.connection, OpenAIChatConnection) and target.connection.api_key is not None:
         data["connection"]["api_key"] = target.connection.api_key.get_secret_value()
+    if target.evaluator is not None and target.evaluator.api_key is not None:
+        data["evaluator"]["api_key"] = target.evaluator.api_key.get_secret_value()
     return json.dumps(data)
 
 

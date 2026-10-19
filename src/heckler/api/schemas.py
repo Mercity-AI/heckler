@@ -11,7 +11,7 @@ from ..domain.models import (
     Conversation,
     ConversationStatus,
     EndReason,
-    ModelSpec,
+    EvaluatorConnection,
     OpenAIChatConnection,
     Run,
     RunConfig,
@@ -26,11 +26,15 @@ from ..domain.models import (
 # ------------------------------------------------------------------------------------------- targets
 
 
+MASK = "***"
+
+
 class TargetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = None
     system_prompt: str = Field(min_length=1)
     connection: TargetConnection
+    evaluator: EvaluatorConnection | None = None
 
 
 class TargetOut(BaseModel):
@@ -39,20 +43,26 @@ class TargetOut(BaseModel):
     description: str | None
     system_prompt: str
     connection: dict[str, Any]
+    evaluator: dict[str, Any] | None
     created_at: datetime
 
     @classmethod
     def of(cls, target: Target) -> "TargetOut":
+        # Never echo stored secrets back to clients: keys come back as a mask (or null when unset).
         connection = target.connection.model_dump(mode="json")
         if isinstance(target.connection, OpenAIChatConnection):
-            # Never echo stored secrets back to clients.
-            connection["api_key"] = "***" if target.connection.api_key else None
+            connection["api_key"] = MASK if target.connection.api_key else None
+        evaluator = None
+        if target.evaluator is not None:
+            evaluator = target.evaluator.model_dump(mode="json")
+            evaluator["api_key"] = MASK if target.evaluator.api_key else None
         return cls(
             id=target.id,
             name=target.name,
             description=target.description,
             system_prompt=target.system_prompt,
             connection=connection,
+            evaluator=evaluator,
             created_at=target.created_at,
         )
 
@@ -66,6 +76,18 @@ class ProbeResult(BaseModel):
     reply: str | None = None
     error: str | None = None
     latency_ms: int
+
+
+class ConnectionTest(TargetCreate):
+    """An agent's settings, saved or not, to check before running. With `target_id`, masked or
+    missing keys are filled in from that saved agent (the edit form never sees stored keys)."""
+
+    target_id: str | None = None
+
+
+class ConnectionTestResult(BaseModel):
+    target: ProbeResult
+    evaluator: ProbeResult | None
 
 
 # ---------------------------------------------------------------------------------------------- runs
@@ -86,6 +108,10 @@ class RunSummary(BaseModel):
     finished_at: datetime | None
     total: int
     finished: int
+    evaluated: int
+    passed: int
+    with_violations: int
+    broken: int
     mean_score: float | None
     pass_rate: float | None
     break_rate: float | None
@@ -104,6 +130,10 @@ class RunSummary(BaseModel):
             finished_at=run.finished_at,
             total=s.total,
             finished=s.finished,
+            evaluated=s.evaluated,
+            passed=s.passed,
+            with_violations=s.with_violations,
+            broken=s.broken,
             mean_score=s.mean_score,
             pass_rate=s.pass_rate,
             break_rate=s.break_rate,
@@ -170,11 +200,6 @@ class RunDetail(BaseModel):
             is_active=is_active,
             conversations=[ConversationSummary.of(c) for c in conversations],
         )
-
-
-class AgentOut(BaseModel):
-    name: str
-    model: ModelSpec
 
 
 class ScenarioList(BaseModel):

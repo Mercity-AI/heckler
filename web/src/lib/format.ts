@@ -69,16 +69,16 @@ export const END_REASON_LABEL: Record<string, string> = {
   cancelled: 'Cancelled',
 }
 
-/** Fixed categorical order for attacker agents (validated: CVD ΔE ≥ 14 between neighbours). */
-const AGENT_HUES = ['#5048e5', '#1f9e99', '#d9831a', '#7a5af0', '#3e3e4c']
-
-export function agentColor(name: string): string {
-  const letter = agentLetter(name)
-  const idx = letter.charCodeAt(0) - 65
-  return AGENT_HUES[idx >= 0 && idx < AGENT_HUES.length ? idx : AGENT_HUES.length - 1]
+/** Conversations are numbered, never named: "#01", "#02", … */
+export function convLabel(index: number): string {
+  return `#${String(index + 1).padStart(2, '0')}`
 }
 
-export function agentLetter(name: string): string {
-  const m = name.match(/([A-Z])\s*$/)
-  return m ? m[1] : name.charAt(0).toUpperCase()
+/** Last path segment of a model id: "anthropic/claude-haiku-5.5" → "claude-haiku-5.5". */
+export function shortModel(model: string | null | undefined): string {
+  return model ? (model.split('/').pop() ?? model) : ''
+}
+
+export function plural(n: number, word: string, many = `${word}s`): string {
+  return `${n} ${n === 1 ? word : many}`
 }

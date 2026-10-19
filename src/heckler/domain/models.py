@@ -41,8 +41,8 @@ class ModelSpec(BaseModel):
 
 
 class AgentProfile(BaseModel):
-    """One attacker agent (A, B, C...): a named worker bound to a model. It has no persona of its
-    own; it plays whatever user the scenario describes."""
+    """The evaluator that runs one conversation: a label bound to a model. It has no persona of its
+    own; it plays whatever user the scenario describes. Every conversation gets its own instance."""
 
     name: str
     model: ModelSpec
@@ -97,12 +97,29 @@ class FakeConnection(BaseModel):
 TargetConnection = Annotated[OpenAIChatConnection | HttpConnection | FakeConnection, Field(discriminator="kind")]
 
 
+class EvaluatorConnection(BaseModel):
+    """The model that plays the simulated users and grades each conversation, on the user's own key.
+
+    Any OpenAI-compatible endpoint. `scenario_model` (same endpoint and key) drives Simula's scenario
+    generation; it defaults to `model` but a cheaper, faster model is usually the better choice.
+    """
+
+    base_url: str
+    model: str
+    api_key: SecretStr | None = None
+    scenario_model: str | None = None
+    max_tokens: int = 8192
+    temperature: float | None = None
+
+
 class Target(BaseModel):
     id: str = Field(default_factory=lambda: new_id("tgt"))
     name: str
     description: str | None = None
     system_prompt: str
     connection: TargetConnection
+    # None on agents created before evaluators were configurable: those fall back to server settings.
+    evaluator: EvaluatorConnection | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -151,6 +168,8 @@ class Severity(StrEnum):
 class Violation(BaseModel):
     rule: str
     evidence: str
+    # Plain-language account of what the agent did wrong, e.g. "Cancelled the booking before verifying the email."
+    explanation: str = ""
     severity: Severity = Severity.MEDIUM
 
 
@@ -245,7 +264,8 @@ class RunStatus(StrEnum):
 class RunConfig(BaseModel):
     num_scenarios: int = Field(default=9, ge=1)
     max_turns: int = Field(default=6, ge=1)
-    concurrency: int = Field(default=3, ge=1)
+    # Conversations in flight at once. None runs every conversation in parallel (the default).
+    concurrency: int | None = Field(default=None, ge=1)
     # Optional free-text steer for scenario generation ("focus on refund abuse and self-harm").
     focus: str | None = None
     # Re-run the exact scenarios of an earlier run (regression testing after a prompt change).
@@ -279,7 +299,6 @@ class RunStats(BaseModel):
     violation_rate: float | None = None
     dimension_means: dict[str, float] = Field(default_factory=dict)
     severity_counts: dict[str, int] = Field(default_factory=dict)
-    by_agent: dict[str, GroupStats] = Field(default_factory=dict)
     by_category: dict[str, GroupStats] = Field(default_factory=dict)
     attacker_usage: Usage = Field(default_factory=Usage)
 

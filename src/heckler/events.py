@@ -47,7 +47,7 @@ class _Channel:
 
 
 class EventBus:
-    def __init__(self, max_history_per_run: int = 5000) -> None:
+    def __init__(self, max_history_per_run: int = 50_000) -> None:
         self._channels: dict[str, _Channel] = {}
         self._max_history = max_history_per_run
 

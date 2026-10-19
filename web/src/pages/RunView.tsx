@@ -9,25 +9,27 @@ import { Insights } from '../components/run/Insights'
 import { ScenarioMap } from '../components/run/ScenarioMap'
 import { SimulaPanel } from '../components/run/SimulaPanel'
 import { StatTiles } from '../components/run/StatTiles'
-import { AgentAvatar, RunStatusPill } from '../components/status'
+import { RunStatusPill } from '../components/status'
 import { Button } from '../components/ui/button'
-import { Card, EmptyState, Eyebrow, Skeleton, Tooltip } from '../components/ui/primitives'
+import { Card, EmptyState, Skeleton } from '../components/ui/primitives'
 import { Tabs } from '../components/ui/tabs'
 import { ShaderField } from '../components/visual/ShaderField'
 import { useRunStream, type LiveConversation } from '../hooks/useRunStream'
 import { api } from '../lib/api'
 import { cn, duration, isActive, relativeTime } from '../lib/format'
-import { keys, useAgents, useRun } from '../lib/queries'
+import { keys, useRun } from '../lib/queries'
+import { outcomeOf } from '../lib/outcome'
 
 type Tab = 'live' | 'insights' | 'scenarios'
-type Filter = 'all' | 'broken' | 'violations' | 'held' | 'active'
+type Filter = 'all' | 'violated' | 'breached' | 'held' | 'active'
 
 const FILTERS: { value: Filter; label: string; test: (c: LiveConversation) => boolean }[] = [
   { value: 'all', label: 'All', test: () => true },
   { value: 'active', label: 'In progress', test: (c) => ['running', 'evaluating', 'pending'].includes(c.status) },
-  { value: 'broken', label: 'Breached', test: (c) => !!(c.evaluation?.broken ?? c.summary?.broken) },
-  { value: 'violations', label: 'Violations', test: (c) => (c.evaluation?.policy_violations.length ?? c.summary?.violation_count ?? 0) > 0 },
-  { value: 'held', label: 'Held', test: (c) => (c.evaluation?.verdict ?? c.summary?.verdict) === 'pass' },
+  // breached chats are violated too: any violation fails the conversation
+  { value: 'violated', label: 'Violated', test: (c) => ['violated', 'breached'].includes(outcomeOf(c) ?? '') },
+  { value: 'breached', label: 'Breached', test: (c) => outcomeOf(c) === 'breached' },
+  { value: 'held', label: 'Held', test: (c) => outcomeOf(c) === 'held' },
 ]
 
 function useNow(active: boolean) {
@@ -64,7 +66,6 @@ export function RunViewPage() {
   const [params, setParams] = useSearchParams()
   const stream = useRunStream(runId)
   const run = useRun(runId)
-  const agents = useAgents()
 
   const tab = (params.get('tab') as Tab) || 'live'
   const openId = params.get('c')
@@ -115,29 +116,9 @@ export function RunViewPage() {
 
   const conversations = useMemo(() => stream.order.map((id) => stream.conversations[id]).filter(Boolean), [stream.order, stream.conversations])
   const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.value, conversations.filter(f.test).length])) as Record<Filter, number>, [conversations])
-  // place in line for pending conversations, in the order the orchestrator starts them
-  const queue = useMemo(() => {
-    const m = new Map<string, number>()
-    conversations.filter((c) => c.status === 'pending').forEach((c, i) => m.set(c.id, i + 1))
-    return m
-  }, [conversations])
   const visible = useMemo(() => conversations.filter(FILTERS.find((f) => f.value === filter)!.test), [conversations, filter])
 
   const openIdx = openId ? conversations.findIndex((c) => c.id === openId) : -1
-  const stepConversation = useCallback(
-    (dir: 1 | -1) => {
-      if (openIdx < 0 || !conversations.length) return
-      const next = conversations[(openIdx + dir + conversations.length) % conversations.length]
-      setParams(
-        (p) => {
-          p.set('c', next.id)
-          return p
-        },
-        { replace: true },
-      )
-    },
-    [openIdx, conversations, setParams],
-  )
 
   const cancel = useMutation({ mutationFn: () => api.cancelRun(runId), onSuccess: () => qc.invalidateQueries({ queryKey: keys.runs }) })
 
@@ -145,7 +126,8 @@ export function RunViewPage() {
   const targetName = detail?.target_name ?? '…'
   const maxTurns = detail?.config.max_turns ?? 6
   const heat = stats?.evaluated ? stats.broken / stats.evaluated : 0
-  const energy = status === 'running' ? 0.9 : status === 'generating_scenarios' || status === 'queued' ? 0.55 : 0.15
+  // the field keeps drifting after the run ends, just slower and quieter
+  const energy = status === 'running' ? 0.85 : status === 'generating_scenarios' || status === 'queued' ? 0.55 : 0.3
   const generating = status === 'queued' || status === 'generating_scenarios'
 
   if (run.isError && !stream.status) {
@@ -164,11 +146,11 @@ export function RunViewPage() {
     <div className="min-h-full">
       {/* header */}
       <div className="relative isolate overflow-hidden border-b border-line">
-        <ShaderField energy={energy} heat={heat} animate={active} className="-z-10" />
+        <ShaderField energy={energy} heat={heat} className="-z-10" />
         <div className="mx-auto max-w-[1440px] px-8 pt-5 pb-6">
           <div className="flex items-center gap-1.5 text-[12.5px] text-ink-3">
             <Link to="/agents" className="hover:text-ink">
-              Your agents
+              Agents
             </Link>
             <ChevronRight className="size-3.5" />
             <span className="text-ink-2">{targetName}</span>
@@ -197,8 +179,8 @@ export function RunViewPage() {
                       {duration(detail.started_at ?? detail.created_at, active ? new Date(now).toISOString() : detail.finished_at)}
                     </span>
                     <span>
-                      {detail.config.scenarios?.length ?? (detail.config.reuse_scenarios_from_run_id ? 'Replayed' : detail.config.num_scenarios)} scenarios · {detail.config.max_turns} turns ·{' '}
-                      {detail.config.concurrency} parallel
+                      {detail.config.scenarios?.length ?? (detail.config.reuse_scenarios_from_run_id ? 'Replayed' : detail.config.num_scenarios)} conversations · up to {detail.config.max_turns} turns ·{' '}
+                      {detail.config.concurrency ? `${detail.config.concurrency} at a time` : 'all in parallel'}
                     </span>
                     {detail.config.focus && <span className="max-w-[320px] truncate">Focus: “{detail.config.focus}”</span>}
                   </>
@@ -206,24 +188,13 @@ export function RunViewPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {agents.data && (
-                <div className="mr-2 flex -space-x-1.5">
-                  {agents.data.map((a) => (
-                    <Tooltip key={a.name} content={`${a.name} · ${a.model.model}`}>
-                      <span>
-                        <AgentAvatar name={a.name} size="md" className="ring-2 ring-white" />
-                      </span>
-                    </Tooltip>
-                  ))}
-                </div>
-              )}
               {active ? (
                 <Button variant="danger" onClick={() => cancel.mutate()} loading={cancel.isPending}>
                   <Square className="size-3 fill-current" /> Stop run
                 </Button>
               ) : (
                 detail && (
-                  <Button variant="secondary" onClick={() => navigate(conversations.length ? `/?target=${detail.target_id}&replay=${runId}` : `/?target=${detail.target_id}`)}>
+                  <Button variant="secondary" onClick={() => navigate(conversations.length ? `/evaluate/${detail.target_id}?replay=${runId}` : `/evaluate/${detail.target_id}`)}>
                     <Repeat className="size-3.5" /> Re-run scenarios
                   </Button>
                 )
@@ -266,27 +237,12 @@ export function RunViewPage() {
         )}
 
         {generating ? (
-          <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
-            <SimulaPanel status={status} progress={stream.progress} phasesSeen={stream.phasesSeen} numScenarios={detail?.config.num_scenarios} />
-            <Card className="p-5">
-              <Eyebrow>Up next</Eyebrow>
-              <p className="mt-2 text-[13px] leading-relaxed text-ink-2">Once the scenarios are ready, the evaluators start their conversations. Each plays the user its scenario describes.</p>
-              <div className="mt-4 flex flex-col gap-2.5">
-                {agents.data?.map((a, i) => (
-                  <motion.div key={a.name} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 * i }} className="flex items-center gap-2.5 rounded-xl border border-line px-3 py-2.5">
-                    <AgentAvatar name={a.name} size="sm" />
-                    <span className="font-display text-[13px] font-medium">{a.name}</span>
-                    <span className="ml-auto text-[11.5px] text-ink-3">waiting</span>
-                  </motion.div>
-                ))}
-              </div>
-            </Card>
-          </div>
+          <SimulaPanel status={status} calls={stream.calls} numScenarios={detail?.config.num_scenarios} startedAt={detail?.started_at ?? detail?.created_at} />
         ) : conversations.length === 0 ? (
           stream.connection === 'connecting' || run.isPending ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-4">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(380px,1fr))] gap-4">
               {[0, 1, 2].map((i) => (
-                <Skeleton key={i} className="h-[420px] rounded-2xl" />
+                <Skeleton key={i} className="h-[620px] rounded-2xl" />
               ))}
             </div>
           ) : (
@@ -333,10 +289,10 @@ export function RunViewPage() {
               <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}>
                 {tab === 'live' &&
                   (visible.length ? (
-                    <motion.div layout className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-4">
+                    <motion.div layout className="grid grid-cols-[repeat(auto-fill,minmax(380px,1fr))] gap-4">
                       <AnimatePresence mode="popLayout">
                         {visible.map((c) => (
-                          <ConversationCard key={c.id} c={c} targetName={targetName} maxTurns={maxTurns} onOpen={openConversation} queuePos={queue.get(c.id)} concurrency={detail?.config.concurrency} />
+                          <ConversationCard key={c.id} c={c} targetName={targetName} maxTurns={maxTurns} onOpen={openConversation} />
                         ))}
                       </AnimatePresence>
                     </motion.div>
@@ -358,8 +314,6 @@ export function RunViewPage() {
         targetName={targetName}
         maxTurns={maxTurns}
         onClose={() => openConversation(null)}
-        onStep={stepConversation}
-        position={{ index: Math.max(0, openIdx), total: conversations.length }}
       />
     </div>
   )

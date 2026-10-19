@@ -4,7 +4,8 @@ import { Link, Outlet, Route, Routes, useLocation, useNavigate } from 'react-rou
 import { Sidebar } from './components/Sidebar'
 import { Card, EmptyState } from './components/ui/primitives'
 import { AgentsPage } from './pages/Agents'
-import { NewRunPage } from './pages/NewRun'
+import { DesignPage } from './pages/Design'
+import { HomePage } from './pages/Home'
 import { RunViewPage } from './pages/RunView'
 
 function Shell() {
@@ -15,7 +16,7 @@ function Shell() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement
-      if (e.metaKey || e.ctrlKey || e.altKey || el.closest('input,textarea,[contenteditable],[role=dialog]')) return
+      if (e.metaKey || e.ctrlKey || e.altKey || el.closest('input,textarea,select,[contenteditable],[role=dialog]')) return
       if (e.key === 'n' || e.key === 'N') {
         e.preventDefault()
         navigate('/')
@@ -63,7 +64,8 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Shell />}>
-        <Route index element={<NewRunPage />} />
+        <Route index element={<HomePage />} />
+        <Route path="evaluate/:targetId" element={<DesignPage />} />
         <Route path="agents" element={<AgentsPage />} />
         <Route path="runs/:runId" element={<RunViewPage />} />
         <Route path="*" element={<NotFound />} />

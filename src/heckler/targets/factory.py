@@ -24,7 +24,8 @@ def build_target_client(target: Target, settings: Settings) -> TargetClient:
     conn = target.connection
     if isinstance(conn, OpenAIChatConnection):
         api_key = conn.api_key.get_secret_value() if conn.api_key else None
-        if api_key is None and conn.api_key_env:
+        # Server-side keys are never handed to user-configured endpoints on public deployments.
+        if api_key is None and conn.api_key_env and not settings.require_user_keys:
             api_key = resolve_env_secret(conn.api_key_env)
         return OpenAIChatTarget(conn, system_prompt=target.system_prompt, api_key=api_key, timeout=settings.target_timeout_seconds)
     if isinstance(conn, HttpConnection):

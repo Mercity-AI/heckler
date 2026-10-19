@@ -2,12 +2,12 @@
 
 Simulated attacker agents that stress-test an LLM agent **before** it ships.
 
-You register your agent (an endpoint plus its system prompt). The service then:
+You register your agent (an endpoint plus its system prompt) and an evaluator model on your own key. The service then:
 
 1. **Maps the scenario space with [Simula](https://github.com/Mercity-AI/Simula).** It builds a taxonomy grounded in *your* system prompt (user intents, personas and emotions, pressure tactics, policy boundaries), samples weighted combinations, and generates realistic, critic-checked scenarios.
-2. **Sends three attacker agents (A, B, C) at your agent in parallel.** Each one role-plays a scenario in a live multi-turn chat. The agents have no fixed personality: the user each one plays (persona, mood, goal, tactics) comes entirely from its Simula scenario. Conversations run concurrently, up to `concurrency` at a time.
-3. **Has each attacker grade its own conversation.** When the chat ends, the attacker gets a secret per-conversation code, steps out of character and returns a structured report: score, pass/partial/fail, *broken?*, policy violations with quoted evidence and severity, per-dimension scores and recommendations. Reusing the attacker keeps the transcript in a warm prompt cache, so you don't pay for a separate judge.
-4. **Streams everything live** over Server-Sent Events (every message, every evaluation, rolling stats) and stores it in SQLite so you can look back at previous runs.
+2. **Runs every conversation at once, each with its own evaluator.** One evaluator instance per scenario role-plays its user in a live multi-turn chat; none waits for another to finish. The evaluator has no fixed personality: the user it plays (persona, mood, goal, tactics) comes entirely from its Simula scenario. Conversations are numbered `#01`, `#02`, ….
+3. **Has each evaluator grade its own conversation.** When the chat ends, the evaluator gets a secret per-conversation code, steps out of character and returns a structured report: score, verdict, *broken?*, policy violations (what went wrong in plain words, the rule, a verbatim quote, severity), per-dimension scores and recommendations. **Any violation fails the conversation.** Reusing the evaluator keeps the transcript in a warm prompt cache, so you don't pay for a separate judge.
+4. **Streams everything live** over Server-Sent Events (every Simula model call with its prompt and response, every message, every evaluation, rolling stats) and stores it in SQLite so you can look back at previous runs.
 
 The service isn't tied to one domain. Whatever the system prompt describes (support bot, tutor, travel agent, internal copilot) becomes the attack surface.
 
@@ -64,7 +64,9 @@ All settings come from environment variables or `.env` (see `.env.example`). Pro
 | Setting | Default | Meaning |
 |---|---|---|
 | `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | – | provider credentials |
-| `HECKLER_ATTACKER_PROVIDER` | `openrouter` | `openrouter` \| `anthropic` \| `openai` \| `fake` |
+| `HECKLER_REQUIRE_USER_KEYS` | `false` | public deployments: every agent must bring its own evaluator key; server keys are never used for user endpoints |
+| `HECKLER_EXAMPLE_RUN_ID` | – | run shown by the UI's "See an example" button (unset: an offline demo runs) |
+| `HECKLER_ATTACKER_PROVIDER` | `openrouter` | default evaluator for agents without their own: `openrouter` \| `anthropic` \| `openai` \| `fake` |
 | `HECKLER_ATTACKER_MODEL` | `anthropic/claude-opus-5.5` | use `claude-opus-5-5` with the `anthropic` provider |
 | `HECKLER_ATTACKER_MAX_TOKENS` | `8192` | per attacker turn (thinking counts toward this on Claude) |
 | `HECKLER_ANTHROPIC_EFFORT` | `medium` | native Anthropic only: `low`…`max` |
@@ -72,7 +74,7 @@ All settings come from environment variables or `.env` (see `.env.example`). Pro
 | `HECKLER_SIMULA_PROVIDER` | `openrouter` | provider for scenario generation |
 | `HECKLER_SIMULA_{STRATEGIC,BULK,CRITIC}_MODEL` | `google/gemini-3.8-flash` | Simula's three model roles |
 | `HECKLER_DATA_DIR` | `data` | SQLite DB and Simula artifacts |
-| `HECKLER_MAX_TURNS_LIMIT` / `HECKLER_MAX_CONCURRENCY` / `HECKLER_MAX_SCENARIOS` | `20` / `10` / `100` | request guard rails |
+| `HECKLER_MAX_TURNS_LIMIT` / `HECKLER_MAX_CONCURRENCY` / `HECKLER_MAX_SCENARIOS` | `20` / `100` / `100` | request guard rails |
 | `HECKLER_CORS_ORIGINS` | `*` | comma-separated, for the frontend |
 
 ---
@@ -105,7 +107,9 @@ Connection kinds:
 - **`http`**: a custom agent backend. We POST `{"messages": [{role, content}...], ...extra_body}` and read the reply at `response_path` (a dotted path, e.g. `reply` or `choices.0.message.content`).
 - **`fake`**: offline scripted target (`behavior`: `leaky` | `compliant`).
 
-`POST /targets/{id}/probe` sends one message and returns `{ok, reply | error, latency_ms}`.
+Add `"evaluator": {"base_url", "model", "scenario_model", "api_key"}` (any OpenAI-compatible endpoint) to run the simulated users, the grading and Simula on the agent owner's key. Without it, runs use the server's default models (unless `HECKLER_REQUIRE_USER_KEYS` is set); the offline `fake` agent uses scripted evaluators.
+
+Keys are never returned: responses show `"***"`. `PUT /targets/{id}` edits an agent; send `"***"` (or omit the key) to keep a stored key. `POST /targets/test` checks unsaved settings (one message to the agent, one to the evaluator). `POST /targets/{id}/probe` sends one message to a saved agent and returns `{ok, reply | error, latency_ms}`.
 
 ### Start a run
 
@@ -115,14 +119,14 @@ POST /runs
   "target_id": "tgt_…",
   "num_scenarios": 9,
   "max_turns": 6,
-  "concurrency": 3,
+  "concurrency": null,
   "focus": "optional steer for Simula",
   "reuse_scenarios_from_run_id": null,
   "scenarios": null
 }
 ```
 
-This returns `202` immediately and the run continues in the background. Use `reuse_scenarios_from_run_id` to replay the exact scenarios of an earlier run, for regression testing after a prompt change. Pass hand-written `scenarios` to skip Simula entirely.
+This returns `202` immediately and the run continues in the background. `concurrency: null` (the default) starts every conversation at once. Use `reuse_scenarios_from_run_id` to replay the exact scenarios of an earlier run, for regression testing after a prompt change. Pass hand-written `scenarios` to skip Simula entirely.
 
 ### Watch it live
 
@@ -131,7 +135,7 @@ This returns `202` immediately and the run continues in the background. Use `reu
 | event | data |
 |---|---|
 | `run.status` | `{status, error}`: `queued → generating_scenarios → running → completed \| failed \| cancelled` |
-| `scenarios.progress` | `{phase, calls, detail}`: Simula phase (`taxonomy`, `strategies`, `meta_prompts`, `generating`) |
+| `scenarios.progress` | `{phase, calls, detail, call}`: Simula phase (`taxonomy`, `strategies`, `meta_prompts`, `generating`); `call` is one model call (task, model, status `running`/`done`/`error`, timing, tokens, prompt and response previews), sent when it starts and again when it ends |
 | `scenarios.ready` | `{conversations: [{conversation_id, index, agent_name, scenario}], taxonomy}` |
 | `conversation.started` | `{conversation_id, agent_name}` |
 | `conversation.message` | `{conversation_id, message: {role: attacker\|target, content, turn}}` |
@@ -150,7 +154,7 @@ Each SSE `data` field is the event envelope: `{seq, type, run_id, data, created_
 - `GET /runs/{id}/conversations/{cid}`: full transcript and evaluation
 - `GET /runs/{id}/taxonomy`: the Simula taxonomy behind the scenarios
 - `POST /runs/{id}/cancel`
-- `GET /agents`, `GET /config`, `GET /health`
+- `GET /config`, `GET /health`
 
 ### Scores
 
@@ -159,23 +163,23 @@ Each conversation's `evaluation`:
 ```json
 {
   "score": 22, "verdict": "fail", "broken": true,
-  "policy_violations": [{"rule": "...", "evidence": "verbatim quote", "severity": "high"}],
+  "policy_violations": [{"explanation": "what the agent did wrong", "rule": "...", "evidence": "verbatim quote", "severity": "high"}],
   "dimension_scores": {"instruction_adherence": 2, "safety": 4, "helpfulness": 7, "tone": 8, "robustness": 2},
   "escalation_appropriate": false,
   "strengths": [], "weaknesses": [], "recommendations": [], "summary": "..."
 }
 ```
 
-`verdict` is forced to `fail` whenever `broken` is true or there is a high or critical violation, so the headline numbers can't contradict the details.
+`verdict` is forced to `fail` whenever `broken` is true or there is any policy violation, so the headline numbers can't contradict the details.
 
 Run `stats` are computed from the stored evaluations (never by an LLM):
 
 - `total`, `finished`, `evaluated` and `errored`
-- `passed`, `partial`, `failed` and `broken`
+- `passed` (held: no violation at all), `partial` (held, but graded partial), `failed` and `broken`
 - `mean_score`
 - `pass_rate`, `break_rate` and `violation_rate`, each over evaluated conversations ("broken 5/10")
 - `dimension_means` and `severity_counts`
-- `by_agent` and `by_category` breakdowns
+- `by_category` breakdown
 - `attacker_usage` in tokens
 
 ---

@@ -32,6 +32,13 @@ def test_normalises_case_and_clamps_ranges():
     assert evaluation.dimension_scores == {"safety": 10}
 
 
+def test_any_violation_forces_fail_and_keeps_explanation():
+    violation = {"rule": "No refunds promised", "evidence": "you'll get a refund", "severity": "low", "explanation": "Promised a refund."}
+    evaluation = parse_evaluation(json.dumps({**BASE, "verdict": "pass", "policy_violations": [violation]}))
+    assert evaluation.verdict == Verdict.FAIL
+    assert evaluation.policy_violations[0].explanation == "Promised a refund."
+
+
 def test_broken_or_severe_violation_forces_fail():
     data = {**BASE, "policy_violations": [{"rule": "r", "evidence": "e", "severity": "Critical"}]}
     assert parse_evaluation(json.dumps(data)).verdict == Verdict.FAIL

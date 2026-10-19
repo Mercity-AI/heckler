@@ -2,13 +2,14 @@ import { motion } from 'motion/react'
 import { useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 import type { LiveConversation } from '../../hooks/useRunStream'
 import { violationTurns } from '../../lib/evidence'
-import { agentColor, cn, humanize } from '../../lib/format'
+import { cn, convLabel, humanize } from '../../lib/format'
+import { OUTCOME_COLOR, OUTCOME_LABEL, outcomeOf } from '../../lib/outcome'
 import type { Difficulty } from '../../lib/types'
 
 /*
  * Small SVG charts for the Insights tab. Conventions (see the dataviz skill): thin marks, 4px rounded
  * data ends, 2px surface ring on dots, hairline solid gridlines, text in ink tokens (never series
- * colour), status colours only for verdicts, categorical agent colours in fixed A/B/C order.
+ * colour), status colours only for outcomes.
  */
 
 const EASE = [0.22, 1, 0.36, 1] as const
@@ -31,11 +32,18 @@ function useWidth<T extends HTMLElement>() {
 
 type Tip = { x: number; y: number; content: ReactNode } | null
 
-function ChartTip({ tip }: { tip: Tip }) {
+/** Hover label above a point. Near either edge it anchors to that side so it never spills out of the card. */
+function ChartTip({ tip, width }: { tip: Tip; width: number }) {
   if (!tip) return null
+  const anchor = width && tip.x > width - 140 ? 'right' : tip.x < 140 ? 'left' : 'center'
   return (
     <div
-      className="pointer-events-none absolute z-20 max-w-[240px] -translate-x-1/2 -translate-y-[calc(100%+10px)] rounded-lg bg-ink px-2.5 py-1.5 text-[12px] leading-snug whitespace-nowrap text-white shadow-pop"
+      className={cn(
+        'pointer-events-none absolute z-20 w-max max-w-[260px] -translate-y-[calc(100%+10px)] rounded-lg bg-ink px-2.5 py-1.5 text-[12px] leading-snug text-white shadow-pop',
+        anchor === 'center' && '-translate-x-1/2',
+        anchor === 'right' && '-translate-x-[calc(100%-12px)]',
+        anchor === 'left' && '-translate-x-3',
+      )}
       style={{ left: tip.x, top: tip.y }}
     >
       {tip.content}
@@ -46,13 +54,9 @@ function ChartTip({ tip }: { tip: Tip }) {
 function scoreOf(c: LiveConversation) {
   return c.evaluation?.score ?? c.summary?.score ?? null
 }
-function verdictTone(c: LiveConversation): { color: string; label: string } {
-  const broken = c.evaluation?.broken ?? c.summary?.broken
-  const verdict = c.evaluation?.verdict ?? c.summary?.verdict
-  if (broken) return { color: 'var(--color-fail)', label: 'Breached' }
-  if (verdict === 'pass') return { color: 'var(--color-pass)', label: 'Held' }
-  if (verdict === 'partial') return { color: 'var(--color-warn)', label: 'Partial' }
-  return { color: 'var(--color-crit)', label: 'Failed' }
+function outcomeTone(c: LiveConversation): { color: string; label: string } {
+  const o = outcomeOf(c) ?? 'held'
+  return { color: OUTCOME_COLOR[o], label: OUTCOME_LABEL[o] }
 }
 
 export function LegendItem({ swatch, children }: { swatch: ReactNode; children: ReactNode }) {
@@ -65,108 +69,10 @@ export function LegendItem({ swatch, children }: { swatch: ReactNode; children: 
 }
 const Dot = ({ color }: { color: string }) => <span className="size-2 rounded-full" style={{ backgroundColor: color }} />
 
-/* ------------------------------------------------------------------------------------ timeline */
-
-/** Each graded chat as a dot in the order it finished, with the running mean as a line. */
-export function ScoreTimeline({ conversations, onOpen }: { conversations: LiveConversation[]; onOpen: (id: string) => void }) {
-  const [ref, w] = useWidth<HTMLDivElement>()
-  const [tip, setTip] = useState<Tip>(null)
-  const points = useMemo(
-    () =>
-      conversations
-        .filter((c) => scoreOf(c) != null)
-        .sort((a, b) => (a.completedAt ?? '').localeCompare(b.completedAt ?? '') || a.index - b.index)
-        .map((c, i, arr) => {
-          const mean = arr.slice(0, i + 1).reduce((s, x) => s + (scoreOf(x) ?? 0), 0) / (i + 1)
-          return { c, score: scoreOf(c)!, mean }
-        }),
-    [conversations],
-  )
-  const H = 200
-  const m = { l: 30, r: 14, t: 12, b: 26 }
-  const iw = Math.max(0, w - m.l - m.r)
-  const ih = H - m.t - m.b
-  const n = points.length
-  const x = (i: number) => m.l + (n <= 1 ? iw / 2 : (i / (n - 1)) * iw)
-  const y = (v: number) => m.t + ih - (v / 100) * ih
-  const meanPath = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.mean).toFixed(1)}`).join('')
-
-  return (
-    <div>
-      <div ref={ref} className="relative" onPointerLeave={() => setTip(null)}>
-        {w > 0 && (
-          <svg width={w} height={H} className="block overflow-visible">
-            {/* score bands from the grading guide, as faint washes */}
-            {[
-              { from: 0, to: 40, fill: 'var(--color-fail)' },
-              { from: 40, to: 70, fill: 'var(--color-warn)' },
-            ].map((b) => (
-              <rect key={b.from} x={m.l} width={iw} y={y(b.to)} height={y(b.from) - y(b.to)} fill={b.fill} opacity={0.035} />
-            ))}
-            {[0, 25, 50, 75, 100].map((v) => (
-              <g key={v}>
-                <line x1={m.l} x2={m.l + iw} y1={y(v)} y2={y(v)} stroke={GRID} />
-                <text x={m.l - 8} y={y(v)} dy="0.32em" textAnchor="end" fontSize={10} fill={AXIS} className="font-mono">
-                  {v}
-                </text>
-              </g>
-            ))}
-            {n > 1 && (
-              <motion.path d={meanPath} fill="none" stroke="var(--color-indigo-500)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.9, ease: EASE }} />
-            )}
-            {points.map((p, i) => {
-              const tone = verdictTone(p.c)
-              return (
-                <g key={p.c.id} className="cursor-pointer" onClick={() => onOpen(p.c.id)}>
-                  <circle cx={x(i)} cy={y(p.score)} r={12} fill="transparent" onPointerEnter={() => setTip({ x: x(i), y: y(p.score), content: <TipBody c={p.c} extra={`${tone.label} · ${p.score}`} /> })} />
-                  <motion.circle
-                    cx={x(i)}
-                    cy={y(p.score)}
-                    r={5}
-                    fill={tone.color}
-                    stroke={SURFACE}
-                    strokeWidth={2}
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ delay: 0.03 * i, type: 'spring', bounce: 0.4, duration: 0.5 }}
-                    style={{ transformOrigin: `${x(i)}px ${y(p.score)}px` }}
-                    pointerEvents="none"
-                  />
-                </g>
-              )
-            })}
-            {n > 0 && (
-              <text x={x(n - 1)} y={y(points[n - 1].mean) - 10} textAnchor="end" fontSize={11} fill="var(--color-ink-2)" className="font-display font-semibold">
-                mean {Math.round(points[n - 1].mean)}
-              </text>
-            )}
-            <text x={m.l} y={H - 6} fontSize={10} fill={AXIS} className="font-mono">
-              first finished
-            </text>
-            <text x={m.l + iw} y={H - 6} fontSize={10} fill={AXIS} textAnchor="end" className="font-mono">
-              latest
-            </text>
-          </svg>
-        )}
-        <ChartTip tip={tip} />
-      </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-        <LegendItem swatch={<span className="h-0.5 w-3.5 rounded-full bg-indigo-500" />}>Running mean</LegendItem>
-        <LegendItem swatch={<Dot color="var(--color-pass)" />}>Held</LegendItem>
-        <LegendItem swatch={<Dot color="var(--color-warn)" />}>Partial</LegendItem>
-        <LegendItem swatch={<Dot color="var(--color-fail)" />}>Breached</LegendItem>
-        <LegendItem swatch={<Dot color="var(--color-crit)" />}>Failed</LegendItem>
-      </div>
-    </div>
-  )
-}
-
 function TipBody({ c, extra }: { c: LiveConversation; extra: ReactNode }) {
   return (
     <span>
-      <span className="font-medium">
-        {c.agent_name} #{c.index + 1}
-      </span>{' '}
+      <span className="font-mono font-medium">{convLabel(c.index)}</span>{' '}
       · {extra}
       <br />
       <span className="text-white/65">{c.scenario?.title ?? c.summary?.scenario_title}</span>
@@ -238,7 +144,7 @@ export function ScoreHistogram({ conversations }: { conversations: LiveConversat
           </text>
         </svg>
       )}
-      <ChartTip tip={tip} />
+      <ChartTip tip={tip} width={w} />
     </div>
   )
 }
@@ -323,7 +229,7 @@ export function BreakTurnChart({ conversations, maxTurns }: { conversations: Liv
             })}
           </svg>
         )}
-        <ChartTip tip={tip} />
+        <ChartTip tip={tip} width={w} />
       </div>
       <p className="mt-2 text-[12px] leading-snug text-ink-3">
         <span className="font-display font-semibold text-ink-2">
@@ -336,118 +242,19 @@ export function BreakTurnChart({ conversations, maxTurns }: { conversations: Liv
   )
 }
 
-/* ------------------------------------------------------------------------- dimensions by agent */
-
-/** Mean dimension score per attacker on one shared 0–10 axis; the grey bar spans their spread. */
-export function AgentDimensionDots({ conversations }: { conversations: LiveConversation[] }) {
-  const [ref, w] = useWidth<HTMLDivElement>()
-  const [tip, setTip] = useState<Tip>(null)
-  const { agents, rows } = useMemo(() => {
-    const acc = new Map<string, Map<string, { s: number; n: number }>>()
-    for (const c of conversations) {
-      const d = c.evaluation?.dimension_scores
-      if (!d) continue
-      const byDim = acc.get(c.agent_name) ?? new Map()
-      for (const [k, v] of Object.entries(d)) {
-        const e = byDim.get(k) ?? { s: 0, n: 0 }
-        e.s += v
-        e.n++
-        byDim.set(k, e)
-      }
-      acc.set(c.agent_name, byDim)
-    }
-    const agents = [...acc.keys()].sort()
-    const dims = [...new Set(agents.flatMap((a) => [...acc.get(a)!.keys()]))]
-    const rows = dims
-      .map((dim) => ({
-        dim,
-        values: agents.map((a) => {
-          const e = acc.get(a)!.get(dim)
-          return { agent: a, v: e ? e.s / e.n : null }
-        }),
-      }))
-      .sort((a, b) => avg(a.values) - avg(b.values))
-    return { agents, rows }
-  }, [conversations])
-
-  if (!rows.length) return <p className="py-10 text-center text-[13px] text-ink-3">No graded chats yet.</p>
-
-  const label = 132
-  const RH = 30
-  const m = { t: 6, b: 22 }
-  const iw = Math.max(0, w - label - 12)
-  const H = m.t + rows.length * RH + m.b
-  const x = (v: number) => label + (v / 10) * iw
-
-  return (
-    <div>
-      <div ref={ref} className="relative" onPointerLeave={() => setTip(null)}>
-        {w > 0 && (
-          <svg width={w} height={H} className="block">
-            {[0, 5, 10].map((v) => (
-              <g key={v}>
-                <line x1={x(v)} x2={x(v)} y1={m.t} y2={H - m.b} stroke={GRID} />
-                <text x={x(v)} y={H - 6} fontSize={10} fill={AXIS} textAnchor="middle" className="font-mono">
-                  {v}
-                </text>
-              </g>
-            ))}
-            {rows.map((r, i) => {
-              const cy = m.t + i * RH + RH / 2
-              const vals = r.values.filter((v) => v.v != null) as { agent: string; v: number }[]
-              const lo = Math.min(...vals.map((v) => v.v))
-              const hi = Math.max(...vals.map((v) => v.v))
-              return (
-                <g key={r.dim}>
-                  <text x={0} y={cy} dy="0.32em" fontSize={12} fill="var(--color-ink-2)">
-                    {humanize(r.dim)}
-                  </text>
-                  <line x1={x(lo)} x2={x(hi)} y1={cy} y2={cy} stroke="var(--color-n-200)" strokeWidth={4} strokeLinecap="round" />
-                  {vals.map((v) => (
-                    <g key={v.agent} onPointerEnter={() => setTip({ x: x(v.v), y: cy - 6, content: `${v.agent} · ${humanize(r.dim)}: ${v.v.toFixed(1)}` })}>
-                      <circle cx={x(v.v)} cy={cy} r={11} fill="transparent" />
-                      <motion.circle
-                        cx={x(v.v)}
-                        cy={cy}
-                        r={5.5}
-                        fill={agentColor(v.agent)}
-                        stroke={SURFACE}
-                        strokeWidth={2}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ duration: 0.4, delay: i * 0.05 }}
-                        pointerEvents="none"
-                      />
-                    </g>
-                  ))}
-                </g>
-              )
-            })}
-          </svg>
-        )}
-        <ChartTip tip={tip} />
-      </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-        {agents.map((a) => (
-          <LegendItem key={a} swatch={<Dot color={agentColor(a)} />}>
-            {a}
-          </LegendItem>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function avg(values: { v: number | null }[]) {
-  const xs = values.map((v) => v.v).filter((v): v is number => v != null)
-  return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0
-}
-
 /* ------------------------------------------------------------------------------- difficulty */
 
 const DIFFS: Difficulty[] = ['easy', 'medium', 'hard']
 
-/** Scores per scenario difficulty as a strip of dots, with the median marked. */
+/** Linear-interpolated quantile of sorted values. */
+function quantile(sorted: number[], q: number) {
+  const pos = (sorted.length - 1) * q
+  const lo = Math.floor(pos)
+  const hi = Math.ceil(pos)
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo)
+}
+
+/** Scores per scenario difficulty as a box plot (quartile box, median, whiskers to min/max), every chat a dot. */
 export function DifficultyStrip({ conversations, onOpen }: { conversations: LiveConversation[]; onOpen: (id: string) => void }) {
   const [ref, w] = useWidth<HTMLDivElement>()
   const [tip, setTip] = useState<Tip>(null)
@@ -461,66 +268,114 @@ export function DifficultyStrip({ conversations, onOpen }: { conversations: Live
   )
   if (!rows.some((r) => r.items.length)) return <p className="py-10 text-center text-[13px] text-ink-3">No graded chats yet.</p>
 
-  const label = 64
-  const RH = 40
+  const label = 70
+  const RH = 48
   const m = { t: 4, b: 22 }
   const iw = Math.max(0, w - label - 12)
   const H = m.t + rows.length * RH + m.b
   const x = (v: number) => label + (v / 100) * iw
+  const WHISKER = 'var(--color-n-400)'
 
   return (
     <div>
-    <div ref={ref} className="relative" onPointerLeave={() => setTip(null)}>
-      {w > 0 && (
-        <svg width={w} height={H} className="block">
-          {[0, 50, 100].map((v) => (
-            <g key={v}>
-              <line x1={x(v)} x2={x(v)} y1={m.t} y2={H - m.b} stroke={GRID} />
-              <text x={x(v)} y={H - 6} fontSize={10} fill={AXIS} textAnchor="middle" className="font-mono">
-                {v}
-              </text>
-            </g>
-          ))}
-          {rows.map((r, i) => {
-            const cy = m.t + i * RH + RH / 2
-            const scores = r.items.map((c) => scoreOf(c)!).sort((a, b) => a - b)
-            const median = scores.length ? scores[Math.floor((scores.length - 1) / 2)] : null
-            // deterministic jitter so overlapping scores stay visible
-            const seen = new Map<number, number>()
-            return (
-              <g key={r.d}>
-                <text x={0} y={cy} dy="0.32em" fontSize={12} fill="var(--color-ink-2)">
-                  {humanize(r.d)}
+      <div ref={ref} className="relative" onPointerLeave={() => setTip(null)}>
+        {w > 0 && (
+          <svg width={w} height={H} className="block">
+            {[0, 25, 50, 75, 100].map((v) => (
+              <g key={v}>
+                <line x1={x(v)} x2={x(v)} y1={m.t} y2={H - m.b} stroke={GRID} />
+                <text x={x(v)} y={H - 6} fontSize={10} fill={AXIS} textAnchor="middle" className="font-mono">
+                  {v}
                 </text>
-                <text x={label - 10} y={cy} dy="0.32em" fontSize={10} fill={AXIS} textAnchor="end" className="font-mono">
-                  {r.items.length}
-                </text>
-                {median != null && <line x1={x(median)} x2={x(median)} y1={cy - 12} y2={cy + 12} stroke="var(--color-ink)" strokeWidth={2} strokeLinecap="round" />}
-                {r.items.map((c) => {
-                  const s = scoreOf(c)!
-                  const k = seen.get(s) ?? 0
-                  seen.set(s, k + 1)
-                  const dy = k === 0 ? 0 : (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 6
-                  const tone = verdictTone(c)
-                  return (
-                    <g key={c.id} className="cursor-pointer" onClick={() => onOpen(c.id)} onPointerEnter={() => setTip({ x: x(s), y: cy + dy - 6, content: <TipBody c={c} extra={`${tone.label} · ${s}`} /> })}>
-                      <circle cx={x(s)} cy={cy + dy} r={10} fill="transparent" />
-                      <circle cx={x(s)} cy={cy + dy} r={4.5} fill={tone.color} stroke={SURFACE} strokeWidth={2} pointerEvents="none" />
-                    </g>
-                  )
-                })}
               </g>
-            )
-          })}
-        </svg>
-      )}
-      <ChartTip tip={tip} />
-    </div>
+            ))}
+            {rows.map((r, i) => {
+              const cy = m.t + i * RH + RH / 2
+              const scores = r.items.map((c) => scoreOf(c)!).sort((a, b) => a - b)
+              const box = scores.length
+                ? { min: scores[0], q1: quantile(scores, 0.25), med: quantile(scores, 0.5), q3: quantile(scores, 0.75), max: scores[scores.length - 1] }
+                : null
+              const bh = 22
+              // deterministic jitter so overlapping scores stay visible
+              const seen = new Map<number, number>()
+              return (
+                <g key={r.d}>
+                  <text x={0} y={cy} dy="0.32em" fontSize={12} fill="var(--color-ink-2)">
+                    {humanize(r.d)}
+                  </text>
+                  <text x={label - 10} y={cy} dy="0.32em" fontSize={10} fill={AXIS} textAnchor="end" className="font-mono">
+                    {r.items.length}
+                  </text>
+                  {box && (
+                    <g
+                      onPointerEnter={() =>
+                        setTip({
+                          x: x(box.med),
+                          y: cy - bh / 2,
+                          content: (
+                            <span>
+                              <span className="font-medium">{humanize(r.d)}</span> · median {Math.round(box.med)}
+                              <br />
+                              <span className="text-white/70">
+                                middle half {Math.round(box.q1)}–{Math.round(box.q3)} · range {box.min}–{box.max}
+                              </span>
+                            </span>
+                          ),
+                        })
+                      }
+                    >
+                      <line x1={x(box.min)} x2={x(box.q1)} y1={cy} y2={cy} stroke={WHISKER} strokeWidth={1.5} />
+                      <line x1={x(box.q3)} x2={x(box.max)} y1={cy} y2={cy} stroke={WHISKER} strokeWidth={1.5} />
+                      <line x1={x(box.min)} x2={x(box.min)} y1={cy - 6} y2={cy + 6} stroke={WHISKER} strokeWidth={1.5} />
+                      <line x1={x(box.max)} x2={x(box.max)} y1={cy - 6} y2={cy + 6} stroke={WHISKER} strokeWidth={1.5} />
+                      <motion.rect
+                        x={x(box.q1)}
+                        y={cy - bh / 2}
+                        width={Math.max(3, x(box.q3) - x(box.q1))}
+                        height={bh}
+                        rx={4}
+                        fill="var(--color-indigo-50)"
+                        stroke="var(--color-indigo-300)"
+                        strokeWidth={1.5}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.5, delay: i * 0.06, ease: EASE }}
+                      />
+                      <line x1={x(box.med)} x2={x(box.med)} y1={cy - bh / 2} y2={cy + bh / 2} stroke="var(--color-ink)" strokeWidth={2} />
+                    </g>
+                  )}
+                  {r.items.map((c) => {
+                    const s = scoreOf(c)!
+                    const k = seen.get(s) ?? 0
+                    seen.set(s, k + 1)
+                    const dy = k === 0 ? 0 : (k % 2 ? -1 : 1) * Math.ceil(k / 2) * 6
+                    const tone = outcomeTone(c)
+                    return (
+                      <g
+                        key={c.id}
+                        className="cursor-pointer"
+                        onClick={() => onOpen(c.id)}
+                        onPointerEnter={() => setTip({ x: x(s), y: cy + dy - 6, content: <TipBody c={c} extra={`${tone.label} · ${s}`} /> })}
+                      >
+                        <circle cx={x(s)} cy={cy + dy} r={10} fill="transparent" />
+                        <circle cx={x(s)} cy={cy + dy} r={4} fill={tone.color} stroke={SURFACE} strokeWidth={2} pointerEvents="none" />
+                      </g>
+                    )
+                  })}
+                </g>
+              )
+            })}
+          </svg>
+        )}
+        <ChartTip tip={tip} width={w} />
+      </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+        <LegendItem swatch={<span className="h-2.5 w-4 rounded-[3px] border-[1.5px] border-indigo-300 bg-indigo-50" />}>Middle half</LegendItem>
         <LegendItem swatch={<span className="h-3 w-0.5 rounded-full bg-ink" />}>Median</LegendItem>
-        <LegendItem swatch={<Dot color="var(--color-pass)" />}>Held</LegendItem>
-        <LegendItem swatch={<Dot color="var(--color-warn)" />}>Partial</LegendItem>
-        <LegendItem swatch={<Dot color="var(--color-fail)" />}>Breached</LegendItem>
+        <LegendItem swatch={<span className="h-px w-4 bg-n-400" />}>Range</LegendItem>
+        <LegendItem swatch={<Dot color={OUTCOME_COLOR.held} />}>Held</LegendItem>
+        <LegendItem swatch={<Dot color={OUTCOME_COLOR.violated} />}>Violated</LegendItem>
+        <LegendItem swatch={<Dot color={OUTCOME_COLOR.breached} />}>Breached</LegendItem>
       </div>
     </div>
   )

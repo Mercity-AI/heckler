@@ -1,10 +1,11 @@
 import { Lightbulb } from 'lucide-react'
 import { useMemo, type ReactNode } from 'react'
 import type { LiveConversation } from '../../hooks/useRunStream'
-import { cn, compact, humanize, pct } from '../../lib/format'
+import { cn, compact, convLabel, humanize, pct } from '../../lib/format'
+import { outcomeOf } from '../../lib/outcome'
 import type { GroupStats, RunStats, Severity } from '../../lib/types'
-import { AgentAvatar, SeverityBadge } from '../status'
-import { AgentDimensionDots, BreakTurnChart, DifficultyStrip, ScoreHistogram, ScoreTimeline } from './Charts'
+import { SeverityBadge } from '../status'
+import { BreakTurnChart, DifficultyStrip, ScoreHistogram } from './Charts'
 import { Card, EmptyState, Eyebrow, Tooltip } from '../ui/primitives'
 
 function Panel({ title, sub, children, className, right }: { title: string; sub?: ReactNode; children: ReactNode; className?: string; right?: ReactNode }) {
@@ -13,7 +14,7 @@ function Panel({ title, sub, children, className, right }: { title: string; sub?
       <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3">
         <div>
           <div className="font-display text-[14px] font-semibold tracking-[-0.01em]">{title}</div>
-          {sub && <div className="mt-0.5 text-[12px] text-ink-3">{sub}</div>}
+          {sub && <div className="mt-0.5 text-[12px] leading-relaxed text-ink-3">{sub}</div>}
         </div>
         {right}
       </div>
@@ -56,13 +57,18 @@ function DimensionChart({ means }: { means: Record<string, number> }) {
   )
 }
 
-/** Verdict mix as one stacked bar with a 2px surface gap between segments, plus a legend. */
-function VerdictMix({ stats }: { stats: RunStats }) {
+/** Held / violated / breached as one stacked bar (2px surface gap between segments), plus a legend. */
+function OutcomeMix({ conversations, errored }: { conversations: LiveConversation[]; errored: number }) {
+  const n = { held: 0, violated: 0, breached: 0 }
+  for (const c of conversations) {
+    const o = outcomeOf(c)
+    if (o) n[o]++
+  }
   const segs = [
-    { k: 'Held', v: stats.passed, cls: 'bg-pass' },
-    { k: 'Partial', v: stats.partial, cls: 'bg-warn' },
-    { k: 'Failed', v: stats.failed, cls: 'bg-fail' },
-    { k: 'Errored', v: stats.errored, cls: 'bg-n-300' },
+    { k: 'Held', v: n.held, cls: 'bg-pass' },
+    { k: 'Violated', v: n.violated, cls: 'bg-fail' },
+    { k: 'Breached', v: n.breached, cls: 'bg-crit' },
+    { k: 'Errored', v: errored, cls: 'bg-n-300' },
   ].filter((s) => s.v > 0)
   const total = segs.reduce((a, s) => a + s.v, 0)
   if (!total) return <p className="text-[13px] text-ink-3">No graded chats yet.</p>
@@ -83,34 +89,42 @@ function VerdictMix({ stats }: { stats: RunStats }) {
           </span>
         ))}
       </div>
-      <div className="mt-4 flex items-center gap-2 rounded-lg bg-fail-soft/70 px-3 py-2 text-[12.5px] text-ink-2">
-        <span className="font-display text-[15px] font-semibold text-fail tabular">{stats.broken}</span> of the {stats.failed} failed chats were instruction breaches.
-      </div>
+      <dl className="mt-4 grid gap-1.5 text-[12px] leading-relaxed text-ink-3">
+        <div>
+          <span className="font-medium text-ink-2">Held:</span> no violation from start to finish.
+        </div>
+        <div>
+          <span className="font-medium text-ink-2">Violated:</span> broke at least one rule. One is enough.
+        </div>
+        <div>
+          <span className="font-medium text-ink-2">Breached:</span> dropped its system prompt or guardrails altogether.
+        </div>
+      </dl>
     </div>
   )
 }
 
-function GroupTable({ rows, label, render }: { rows: [string, GroupStats][]; label: string; render: (name: string) => ReactNode }) {
+function CategoryTable({ rows }: { rows: [string, GroupStats][] }) {
   if (!rows.length) return <p className="text-[13px] text-ink-3">Nothing yet.</p>
   return (
     <table className="w-full text-[12.5px]">
       <thead>
         <tr className="text-left text-ink-3">
-          <th className="pb-2 font-mono text-[10.5px] font-medium tracking-wider uppercase">{label}</th>
+          <th className="pb-2 font-mono text-[10.5px] font-medium tracking-wider uppercase">Category</th>
           <th className="pb-2 text-right font-mono text-[10.5px] font-medium tracking-wider uppercase">Chats</th>
-          <th className="w-[38%] pb-2 pl-4 font-mono text-[10.5px] font-medium tracking-wider uppercase">Breached</th>
+          <th className="w-[38%] pb-2 pl-4 font-mono text-[10.5px] font-medium tracking-wider uppercase">Violated</th>
           <th className="pb-2 text-right font-mono text-[10.5px] font-medium tracking-wider uppercase">Score</th>
         </tr>
       </thead>
       <tbody>
         {rows.map(([name, g]) => {
-          const rate = g.evaluated ? g.broken / g.evaluated : 0
+          const rate = g.evaluated ? g.with_violations / g.evaluated : 0
           return (
             <tr key={name} className="border-t border-line/70">
-              <td className="py-2 pr-2">{render(name)}</td>
+              <td className="py-2 pr-2 font-medium text-ink">{humanize(name)}</td>
               <td className="py-2 text-right tabular text-ink-2">{g.conversations}</td>
               <td className="py-2 pl-4">
-                <Tooltip content={`The agent set its prompt aside in ${g.broken} of ${g.evaluated} graded chats`}>
+                <Tooltip content={`${g.with_violations} of ${g.evaluated} graded chats in this category had a violation`}>
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-n-100">
                       <div className="h-full rounded-full bg-fail transition-[width] duration-700" style={{ width: `${rate * 100}%` }} />
@@ -133,13 +147,13 @@ const SEV_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, lo
 export function Insights({ stats, conversations, onOpen, maxTurns }: { stats: RunStats | null; conversations: LiveConversation[]; onOpen: (id: string) => void; maxTurns: number }) {
   // Group violations by rule so recurring weaknesses stand out.
   const rules = useMemo(() => {
-    const map = new Map<string, { rule: string; severity: Severity; hits: { id: string; agent: string; title: string }[] }>()
+    const map = new Map<string, { rule: string; severity: Severity; hits: { id: string; index: number; title: string; explanation: string }[] }>()
     for (const c of conversations) {
       for (const v of c.evaluation?.policy_violations ?? []) {
         const key = v.rule.trim().toLowerCase()
         const entry = map.get(key) ?? { rule: v.rule, severity: v.severity, hits: [] }
         if (SEV_RANK[v.severity] < SEV_RANK[entry.severity]) entry.severity = v.severity
-        if (!entry.hits.some((h) => h.id === c.id)) entry.hits.push({ id: c.id, agent: c.agent_name, title: c.scenario?.title ?? '' })
+        if (!entry.hits.some((h) => h.id === c.id)) entry.hits.push({ id: c.id, index: c.index, title: c.scenario?.title ?? '', explanation: v.explanation ?? '' })
         map.set(key, entry)
       }
     }
@@ -162,58 +176,58 @@ export function Insights({ stats, conversations, onOpen, maxTurns }: { stats: Ru
   if (!stats || !stats.evaluated)
     return (
       <Card>
-        <EmptyState title="Insights appear as conversations are graded">Each evaluator grades its conversation as soon as it ends. Everything here updates live.</EmptyState>
+        <EmptyState title="Insights appear as conversations are graded">Each conversation is graded the moment it ends. Everything here updates live.</EmptyState>
       </Card>
     )
 
-  const byAgent = Object.entries(stats.by_agent).sort((a, b) => a[0].localeCompare(b[0]))
-  const byCategory = Object.entries(stats.by_category).sort((a, b) => (b[1].evaluated ? b[1].broken / b[1].evaluated : 0) - (a[1].evaluated ? a[1].broken / a[1].evaluated : 0))
+  const byCategory = Object.entries(stats.by_category).sort(
+    (a, b) => (b[1].evaluated ? b[1].with_violations / b[1].evaluated : 0) - (a[1].evaluated ? a[1].with_violations / a[1].evaluated : 0),
+  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Panel title="Score timeline" sub="Every graded chat in the order it finished, with the running mean. Click a dot to open it." className="lg:col-span-2">
-        <ScoreTimeline conversations={conversations} onOpen={onOpen} />
+      <Panel title="Outcomes" sub={`${stats.evaluated} graded conversations`}>
+        <OutcomeMix conversations={conversations} errored={stats.errored} />
       </Panel>
-      <Panel title="Score distribution" sub="How graded scores spread from 0 to 100">
+      <Panel title="Weakest dimensions" sub="Mean grade per dimension across all conversations, 0–10, lowest first">
+        <DimensionChart means={stats.dimension_means} />
+      </Panel>
+
+      <Panel title="Score distribution" sub="How the 0–100 scores spread. Bars wear the band they fall in.">
         <ScoreHistogram conversations={conversations} />
       </Panel>
-      <Panel title="Turn of first violation" sub="When the agent first slipped, per conversation">
+      <Panel title="Turn of first violation" sub="How many turns of pressure it took before the agent first slipped">
         <BreakTurnChart conversations={conversations} maxTurns={maxTurns} />
       </Panel>
 
-      <Panel title="Weakest dimensions" sub="Mean score per dimension across graded chats, lowest first (0–10)">
-        <DimensionChart means={stats.dimension_means} />
-      </Panel>
-      <Panel title="Verdicts" sub={`${stats.evaluated} graded chats`}>
-        <VerdictMix stats={stats} />
-      </Panel>
-
-      <Panel title="Dimensions by evaluator" sub="Mean per evaluator on a 0–10 scale; the grey bar spans their spread">
-        <AgentDimensionDots conversations={conversations} />
-      </Panel>
-      <Panel title="Score by difficulty" sub="Each dot is a chat. Harder scenarios should score lower; if not, they aren’t hard.">
+      <Panel
+        title="Score by difficulty"
+        sub="Each dot is a conversation; the box spans the middle half of scores. Harder scenarios should score lower; if they don’t, they aren’t hard."
+        className="lg:col-span-2"
+      >
         <DifficultyStrip conversations={conversations} onOpen={onOpen} />
       </Panel>
 
-      <Panel title="Policy findings" sub="Grouped by rule, most severe first. Open a conversation to see the quoted evidence." className="lg:col-span-2">
+      <Panel title="Policy findings" sub="Every rule the agent broke, grouped and most severe first. Click a conversation number to open it." className="lg:col-span-2">
         {rules.length ? (
           <div className="divide-y divide-line/70">
             {rules.map((r) => (
               <div key={r.rule} className="grid gap-2 py-3 first:pt-0 last:pb-0 sm:grid-cols-[1fr_auto] sm:items-center">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-3">
-                    <SeverityBadge severity={r.severity} />
-                    <span className="font-display text-[13.5px] font-semibold text-ink">{r.rule}</span>
-                  </div>
+                <div className="flex min-w-0 items-center gap-3">
+                  <SeverityBadge severity={r.severity} />
+                  <span className="font-display text-[13.5px] font-semibold text-ink">{r.rule}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
                   <span className="mr-1 text-[12px] text-ink-3 tabular">
                     {r.hits.length} chat{r.hits.length === 1 ? '' : 's'}
                   </span>
-                  {r.hits.slice(0, 8).map((h) => (
-                    <Tooltip key={h.id} content={h.title}>
-                      <button onClick={() => onOpen(h.id)} className="rounded-md transition-transform hover:-translate-y-px">
-                        <AgentAvatar name={h.agent} size="sm" />
+                  {r.hits.slice(0, 10).map((h) => (
+                    <Tooltip key={h.id} content={h.explanation || h.title}>
+                      <button
+                        onClick={() => onOpen(h.id)}
+                        className="rounded-md border border-line bg-surface px-1.5 py-0.5 font-mono text-[11px] text-ink-2 transition-colors hover:border-fail/40 hover:text-fail"
+                      >
+                        {convLabel(h.index)}
                       </button>
                     </Tooltip>
                   ))}
@@ -226,24 +240,16 @@ export function Insights({ stats, conversations, onOpen, maxTurns }: { stats: Ru
         )}
       </Panel>
 
-      <Panel title="By evaluator" sub="Same agent, different scenarios">
-        <GroupTable
-          rows={byAgent}
-          label="Agent"
-          render={(name) => (
-            <span className="inline-flex items-center gap-2 font-medium text-ink">
-              <AgentAvatar name={name} size="sm" />
-              {name}
-            </span>
-          )}
-        />
-      </Panel>
-      <Panel title="By scenario category" sub="Sorted by breach rate, highest first">
-        <GroupTable rows={byCategory} label="Category" render={(name) => <span className="font-medium text-ink">{humanize(name)}</span>} />
+      <Panel title="By scenario category" sub="Which kinds of situation broke the agent most often" className="lg:col-span-2">
+        <CategoryTable rows={byCategory} />
       </Panel>
 
       {recommendations.length > 0 && (
-        <Panel title="Recommended prompt changes" sub="From the evaluators, most repeated first" className="lg:col-span-2">
+        <Panel
+          title="Recommended prompt changes"
+          sub="Edits to your system prompt that would have prevented the problems above, suggested by the graders and most repeated first. Apply them, then replay the same scenarios to check."
+          className="lg:col-span-2"
+        >
           <ol className="grid gap-x-8 gap-y-3 md:grid-cols-2">
             {recommendations.map((r, i) => (
               <li key={i} className="flex gap-3 text-[13px] leading-relaxed text-ink-2">

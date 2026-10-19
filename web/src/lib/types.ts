@@ -14,11 +14,6 @@ export interface ModelSpec {
   temperature: number | null
 }
 
-export interface AgentOut {
-  name: string
-  model: ModelSpec
-}
-
 export interface OpenAIChatConnection {
   kind: 'openai_chat'
   base_url: string
@@ -48,12 +43,25 @@ export interface FakeConnection {
 
 export type TargetConnection = OpenAIChatConnection | HttpConnection | FakeConnection
 
+/** The model that plays the simulated users and grades each conversation (OpenAI-compatible). */
+export interface EvaluatorConnection {
+  base_url: string
+  model: string
+  /** "***" when a key is stored; send "***" back to keep it. */
+  api_key?: string | null
+  /** Drives Simula's scenario generation on the same endpoint; defaults to `model`. */
+  scenario_model?: string | null
+  max_tokens?: number
+  temperature?: number | null
+}
+
 export interface Target {
   id: string
   name: string
   description: string | null
   system_prompt: string
   connection: TargetConnection
+  evaluator: EvaluatorConnection | null
   created_at: string
 }
 
@@ -62,6 +70,12 @@ export interface TargetCreate {
   description?: string | null
   system_prompt: string
   connection: TargetConnection
+  evaluator?: EvaluatorConnection | null
+}
+
+export interface ConnectionTestResult {
+  target: ProbeResult
+  evaluator: ProbeResult | null
 }
 
 export interface ProbeResult {
@@ -106,6 +120,8 @@ export interface Violation {
   rule: string
   evidence: string
   severity: Severity
+  /** Plain-language account of what went wrong (empty on older reports). */
+  explanation?: string
 }
 
 export interface Evaluation {
@@ -146,7 +162,8 @@ export interface Conversation {
 export interface RunConfig {
   num_scenarios: number
   max_turns: number
-  concurrency: number
+  /** null: every conversation runs in parallel. */
+  concurrency: number | null
   focus: string | null
   reuse_scenarios_from_run_id: string | null
   scenarios: Scenario[] | null
@@ -177,7 +194,6 @@ export interface RunStats {
   violation_rate: number | null
   dimension_means: Record<string, number>
   severity_counts: Record<string, number>
-  by_agent: Record<string, GroupStats>
   by_category: Record<string, GroupStats>
   attacker_usage: Usage
 }
@@ -191,6 +207,10 @@ export interface RunSummary {
   finished_at: string | null
   total: number
   finished: number
+  evaluated: number
+  passed: number
+  with_violations: number
+  broken: number
   mean_score: number | null
   pass_rate: number | null
   break_rate: number | null
@@ -235,11 +255,11 @@ export interface RunCreate extends Partial<RunConfig> {
 }
 
 export interface PublicConfig {
-  providers: string[]
-  configured_keys: Record<string, boolean>
-  defaults: { max_turns: number; concurrency: number }
+  defaults: { max_turns: number }
   limits: { max_turns: number; concurrency: number; num_scenarios: number }
-  simula_models: Record<string, ModelSpec>
+  suggested_evaluator: { base_url: string; model: string; scenario_model: string }
+  require_user_keys: boolean
+  example_run_id: string | null
 }
 
 export interface TaxonomyNode {
@@ -256,10 +276,28 @@ export interface Taxonomy {
   factors: TaxonomyNode[]
 }
 
+/** One model call Simula made while generating scenarios. Sent at start (running) and end (done/error). */
+export interface GeneratorCall {
+  id: number
+  task: string
+  phase: string
+  role: string
+  model: string
+  status: 'running' | 'done' | 'error'
+  started_at: number
+  duration_ms: number | null
+  input_tokens: number
+  output_tokens: number
+  prompt: string
+  output: string
+  error: string | null
+}
+
 export interface ScenarioProgress {
   phase: 'taxonomy' | 'strategies' | 'meta_prompts' | 'generating' | string
   calls: number
   detail: string | null
+  call?: GeneratorCall | null
 }
 
 export interface RunEvent<T = Record<string, unknown>> {

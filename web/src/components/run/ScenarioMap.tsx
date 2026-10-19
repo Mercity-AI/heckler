@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 import type { LiveConversation } from '../../hooks/useRunStream'
-import { cn, humanize } from '../../lib/format'
+import { cn, convLabel, humanize } from '../../lib/format'
+import { outcomeOf } from '../../lib/outcome'
 import type { Taxonomy, TaxonomyNode } from '../../lib/types'
-import { AgentAvatar, StatusDot, VerdictBadge } from '../status'
+import { OutcomeBadge, StatusDot } from '../status'
 import { Card, Chip, EmptyState, Eyebrow, Tooltip } from '../ui/primitives'
 
 interface NodeStat {
@@ -30,7 +31,7 @@ function TaxonomyGrid({ taxonomy, conversations }: { taxonomy: Taxonomy; convers
         s.used++
         if (c.evaluation) {
           s.evaluated++
-          if (c.evaluation.broken) s.broken++
+          if (outcomeOf(c) !== 'held') s.broken++
         }
         m.set(key, s)
       }
@@ -58,7 +59,7 @@ function TaxonomyGrid({ taxonomy, conversations }: { taxonomy: Taxonomy; convers
                       <span>
                         {n.description !== humanize(n.name).toLowerCase() && n.description !== n.name.replace(/_/g, ' ') ? `${n.description}. ` : ''}
                         {s ? `${s.used} scenario${s.used === 1 ? '' : 's'}` : 'Not sampled this run'}
-                        {s?.evaluated ? `, breached ${s.broken}/${s.evaluated}` : ''}
+                        {s?.evaluated ? `, violated in ${s.broken}/${s.evaluated}` : ''}
                       </span>
                     }
                     side="right"
@@ -90,7 +91,7 @@ export function ScenarioMap({ taxonomy, conversations, onOpen }: { taxonomy: Tax
         <div className="mb-3 flex items-end justify-between gap-4">
           <div>
             <Eyebrow>Simula taxonomy</Eyebrow>
-            <p className="mt-1 text-[13px] text-ink-3">The space your prompt implies. Counts are scenarios drawn from each node; red bars show the breach rate there.</p>
+            <p className="mt-1 text-[13px] text-ink-3">The space your prompt implies. Counts are scenarios drawn from each node; red bars show how often the agent violated its policy there.</p>
           </div>
         </div>
         {taxonomy?.factors?.length ? (
@@ -108,8 +109,8 @@ export function ScenarioMap({ taxonomy, conversations, onOpen }: { taxonomy: Tax
           <table className="w-full text-[12.5px]">
             <thead className="bg-n-50/80 text-left text-ink-3">
               <tr>
-                {['#', 'Scenario', 'Category', 'Difficulty', 'Agent', 'Result'].map((h, i) => (
-                  <th key={h} className={cn('px-4 py-2.5 font-mono text-[10.5px] font-medium tracking-wider uppercase', i === 5 && 'text-right')}>
+                {['#', 'Scenario', 'Category', 'Difficulty', 'Result'].map((h, i) => (
+                  <th key={h} className={cn('px-4 py-2.5 font-mono text-[10.5px] font-medium tracking-wider uppercase', i === 4 && 'text-right')}>
                     {h}
                   </th>
                 ))}
@@ -121,7 +122,7 @@ export function ScenarioMap({ taxonomy, conversations, onOpen }: { taxonomy: Tax
                 const e = c.evaluation
                 return (
                   <tr key={c.id} onClick={() => onOpen(c.id)} className="cursor-pointer border-t border-line/70 transition-colors hover:bg-n-50">
-                    <td className="px-4 py-2.5 font-mono text-ink-3 tabular">{c.index + 1}</td>
+                    <td className="px-4 py-2.5 font-mono text-ink-3 tabular">{convLabel(c.index)}</td>
                     <td className="max-w-[360px] px-4 py-2.5">
                       <div className="truncate font-medium text-ink">{title}</div>
                       {c.scenario && <div className="truncate text-[11.5px] text-ink-3">{c.scenario.goal}</div>}
@@ -130,16 +131,11 @@ export function ScenarioMap({ taxonomy, conversations, onOpen }: { taxonomy: Tax
                       <Chip>{humanize(c.scenario?.category ?? c.summary?.scenario_category ?? '')}</Chip>
                     </td>
                     <td className="px-4 py-2.5 text-ink-2">{c.scenario?.difficulty ?? c.summary?.difficulty}</td>
-                    <td className="px-4 py-2.5">
-                      <span className="inline-flex items-center gap-1.5">
-                        <AgentAvatar name={c.agent_name} size="sm" /> {c.agent_name}
-                      </span>
-                    </td>
                     <td className="px-4 py-2.5 text-right">
                       {e || c.summary?.verdict ? (
                         <span className="inline-flex items-center gap-2">
                           <span className="font-display font-semibold tabular">{e?.score ?? c.summary?.score}</span>
-                          <VerdictBadge verdict={e?.verdict ?? c.summary?.verdict ?? null} broken={e?.broken ?? c.summary?.broken} size="sm" />
+                          <OutcomeBadge outcome={outcomeOf(c)} size="sm" />
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-ink-3">

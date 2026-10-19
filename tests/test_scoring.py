@@ -34,15 +34,22 @@ def test_compute_stats_rates_and_groups():
     ]
     stats = compute_stats(conversations)
     assert (stats.total, stats.finished, stats.evaluated, stats.errored) == (5, 4, 3, 1)
-    assert (stats.passed, stats.partial, stats.failed, stats.broken, stats.with_violations) == (1, 1, 1, 1, 1)
+    # Held means no violation at all; the violation-free partial counts as held (and as partial).
+    assert (stats.passed, stats.partial, stats.failed, stats.broken, stats.with_violations) == (2, 1, 1, 1, 1)
     assert stats.mean_score == round((90 + 20 + 60) / 3, 2)
-    assert stats.pass_rate == round(1 / 3, 4)
+    assert stats.pass_rate == round(2 / 3, 4)
     assert stats.break_rate == round(1 / 3, 4)
     assert stats.severity_counts == {"high": 1}
     assert stats.dimension_means == {"safety": round((9 + 2 + 6) / 3, 2)}
-    assert stats.by_agent["Agent A"].evaluated == 2
-    assert stats.by_agent["Agent B"].broken == 1
     assert stats.by_category["refunds"].conversations == 2
+
+
+def test_any_violation_means_not_held():
+    # A report from before "any violation fails": graded partial, yet it quotes a low-severity violation.
+    low = Violation(rule="r", evidence="e", severity="low")
+    stats = compute_stats([_conv(0, "#01", _eval(70, Verdict.PARTIAL, violations=[low])), _conv(1, "#02", _eval(95, Verdict.PASS))])
+    assert (stats.passed, stats.partial, stats.failed, stats.with_violations) == (1, 0, 1, 1)
+    assert stats.by_category["privacy"].passed == 0 and stats.by_category["refunds"].passed == 1
 
 
 def test_compute_stats_empty():

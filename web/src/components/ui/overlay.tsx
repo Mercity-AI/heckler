@@ -29,6 +29,7 @@ export function Dialog({
   children,
   footer,
   className,
+  bodyClassName,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -37,6 +38,8 @@ export function Dialog({
   children: ReactNode
   footer?: ReactNode
   className?: string
+  /** Overrides the body's default padding (e.g. for a form that pads its own sections). */
+  bodyClassName?: string
 }) {
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -66,7 +69,7 @@ export function Dialog({
                       <X className="size-4" />
                     </RadixDialog.Close>
                   </div>
-                  <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
+                  <div className={cn('scrollbar-thin min-h-0 flex-1 overflow-y-auto px-6 py-5', bodyClassName)}>{children}</div>
                   {footer && <div className="flex items-center justify-end gap-2 border-t border-line bg-n-50/60 px-6 py-3.5 rounded-b-2xl">{footer}</div>}
                 </motion.div>
               </RadixDialog.Content>
@@ -100,7 +103,13 @@ export function Sheet({
         {open && (
           <RadixDialog.Portal forceMount>
             <Overlay />
-            <RadixDialog.Content asChild forceMount aria-describedby={undefined}>
+            <RadixDialog.Content
+              asChild
+              forceMount
+              aria-describedby={undefined}
+              // floating layers (tooltips) are portalled outside the sheet; clicking them must not close it
+              onInteractOutside={(e) => (e.target as HTMLElement | null)?.closest?.('[data-radix-popper-content-wrapper]') && e.preventDefault()}
+            >
               <motion.div
                 className={cn('fixed inset-y-2 right-2 z-50 flex w-[min(1080px,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-line bg-ground shadow-pop outline-none', className)}
                 initial={{ x: 40, opacity: 0 }}

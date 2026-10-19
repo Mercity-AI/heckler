@@ -2,9 +2,9 @@ import { AlertOctagon, FileWarning, ShieldCheck } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useSpotlight } from '../../hooks/useSpotlight'
 import { cn } from '../../lib/format'
-import type { RunStats, Severity } from '../../lib/types'
+import type { RunStats } from '../../lib/types'
 import { ScoreRing } from '../status'
-import { Meter, Ticker, Tooltip } from '../ui/primitives'
+import { Meter, Ticker } from '../ui/primitives'
 
 function Tile({ icon, label, children, sub, className, tone }: { icon: ReactNode; label: string; children: ReactNode; sub: ReactNode; className?: string; tone?: 'fail' }) {
   const spot = useSpotlight()
@@ -37,61 +37,33 @@ function Fraction({ num, den }: { num: number; den: number }) {
   )
 }
 
-const SEV_ORDER: Severity[] = ['critical', 'high', 'medium', 'low']
-const SEV_COLOR: Record<Severity, string> = { critical: 'bg-crit', high: 'bg-fail', medium: 'bg-warn', low: 'bg-n-400' }
-
 export function StatTiles({ stats }: { stats: RunStats }) {
   const n = stats.evaluated
-  const sevTotal = SEV_ORDER.reduce((a, s) => a + (stats.severity_counts[s] ?? 0), 0)
+  const sub = (text: string) => (n ? text : 'Waiting for the first graded chat')
   return (
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-      <Tile icon={<AlertOctagon className="size-3.5 text-fail" />} label="Instruction breaches" tone={stats.broken > 0 ? 'fail' : undefined} sub={n ? `Set its system prompt aside in ${stats.broken} of ${n} graded chats` : 'Waiting for the first graded chat'}>
-        <Fraction num={stats.broken} den={n} />
-        <Meter value={n ? stats.broken / n : 0} tone="fail" />
-      </Tile>
       <Tile
-        icon={<FileWarning className="size-3.5 text-warn" />}
-        label="Policy violations"
-        sub={
-          sevTotal ? (
-            <span className="flex flex-wrap gap-x-2.5">
-              {SEV_ORDER.filter((s) => stats.severity_counts[s]).map((s) => (
-                <span key={s} className="inline-flex items-center gap-1">
-                  <span className={cn('size-1.5 rounded-full', SEV_COLOR[s])} />
-                  {stats.severity_counts[s]} {s}
-                </span>
-              ))}
-            </span>
-          ) : (
-            'None recorded'
-          )
-        }
+        icon={<FileWarning className="size-3.5 text-fail" />}
+        label="Violated policy"
+        tone={stats.with_violations > 0 ? 'fail' : undefined}
+        sub={sub('At least one violation. One is enough to fail a chat.')}
       >
         <Fraction num={stats.with_violations} den={n} />
-        {sevTotal ? (
-          <div className="flex h-1.5 gap-[2px] overflow-hidden rounded-full bg-n-100">
-            {SEV_ORDER.filter((s) => stats.severity_counts[s]).map((s) => (
-              <Tooltip key={s} content={`${stats.severity_counts[s]} ${s}-severity violation${stats.severity_counts[s] === 1 ? '' : 's'}`}>
-                <div className={cn('h-full transition-[width] duration-700', SEV_COLOR[s])} style={{ width: `${((stats.severity_counts[s] ?? 0) / sevTotal) * (n ? stats.with_violations / n : 0) * 100}%` }} />
-              </Tooltip>
-            ))}
-          </div>
-        ) : (
-          <Meter value={0} tone="warn" />
-        )}
+        <Meter value={n ? stats.with_violations / n : 0} tone="fail" />
       </Tile>
-      <Tile icon={<ShieldCheck className="size-3.5 text-pass" />} label="Held policy" sub={n ? `${stats.partial} partial · ${stats.failed} failed` : 'Kept every rule for the whole chat'}>
+      <Tile icon={<ShieldCheck className="size-3.5 text-pass" />} label="Held policy" sub={sub('No violation from the first message to the last.')}>
         <Fraction num={stats.passed} den={n} />
         <Meter value={n ? stats.passed / n : 0} tone="pass" />
       </Tile>
-      <Tile icon={<span className="size-3.5 rounded-full border-2 border-ink-3" />} label="Mean score" sub={stats.errored ? `${stats.errored} chat${stats.errored === 1 ? '' : 's'} errored` : '0–100, against your policy'}>
+      <Tile icon={<AlertOctagon className="size-3.5 text-crit" />} label="Instruction breaches" sub={sub('Set its system prompt aside entirely. Counted within violated.')}>
+        <Fraction num={stats.broken} den={n} />
+        <Meter value={n ? stats.broken / n : 0} tone="fail" />
+      </Tile>
+      <Tile icon={<span className="size-3.5 rounded-full border-2 border-ink-3" />} label="Mean score" sub={stats.errored ? `${stats.errored} chat${stats.errored === 1 ? '' : 's'} errored` : '0–100, graded against your policy.'}>
         <div className="flex items-center gap-3">
           <ScoreRing value={stats.mean_score} size={48} stroke={4.5} />
           <div className="text-[12px] leading-snug text-ink-3">
-            <div>
-              <span className="font-display font-semibold text-ink tabular">{stats.finished}</span>/{stats.total} finished
-            </div>
-            <div>{stats.attacker_usage.calls} evaluator calls</div>
+            <span className="font-display font-semibold text-ink tabular">{stats.finished}</span>/{stats.total} finished
           </div>
         </div>
       </Tile>

@@ -5,6 +5,7 @@ import type {
   ConversationSummary,
   EndReason,
   Evaluation,
+  GeneratorCall,
   RunDetail,
   RunEvent,
   RunStats,
@@ -40,6 +41,8 @@ export interface RunStreamState {
   error: string | null
   progress: ScenarioProgress | null
   phasesSeen: string[]
+  /** Every model call Simula made, in start order, with its latest status. */
+  calls: GeneratorCall[]
   taxonomy: Taxonomy | null
   order: string[]
   conversations: Record<string, LiveConversation>
@@ -63,6 +66,7 @@ const initial = (runId: string): RunStreamState => ({
   error: null,
   progress: null,
   phasesSeen: [],
+  calls: [],
   taxonomy: null,
   order: [],
   conversations: {},
@@ -126,7 +130,13 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
         case 'scenarios.progress': {
           const progress = e.data as unknown as ScenarioProgress
           const phasesSeen = s.phasesSeen.includes(progress.phase) ? s.phasesSeen : [...s.phasesSeen, progress.phase]
-          return { ...s, progress, phasesSeen }
+          let calls = s.calls
+          const call = progress.call
+          if (call) {
+            const at = calls.findIndex((x) => x.id === call.id)
+            calls = at < 0 ? [...calls, call] : calls.map((x, i) => (i === at ? call : x))
+          }
+          return { ...s, progress, phasesSeen, calls }
         }
         case 'scenarios.ready': {
           const list = (d.conversations as unknown as { conversation_id: string; index: number; agent_name: string; scenario: Scenario }[]) ?? []

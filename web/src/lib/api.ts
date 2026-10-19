@@ -1,6 +1,6 @@
 import type {
-  AgentOut,
   Conversation,
+  ConnectionTestResult,
   ProbeResult,
   PublicConfig,
   RunCreate,
@@ -49,11 +49,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ status: string; version: string }>('/health'),
   config: () => request<PublicConfig>('/config'),
-  agents: () => request<AgentOut[]>('/agents'),
 
   targets: () => request<Target[]>('/targets'),
   target: (id: string) => request<Target>(`/targets/${id}`),
   createTarget: (body: TargetCreate) => request<Target>('/targets', { method: 'POST', body: JSON.stringify(body) }),
+  updateTarget: (id: string, body: TargetCreate) => request<Target>(`/targets/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  /** Checks unsaved settings: one message to the agent, one to the evaluator. `target_id` fills in stored keys. */
+  testConnection: (body: TargetCreate & { target_id?: string | null }) =>
+    request<ConnectionTestResult>('/targets/test', { method: 'POST', body: JSON.stringify(body) }),
   deleteTarget: (id: string) => request<void>(`/targets/${id}`, { method: 'DELETE' }),
   probeTarget: (id: string, message?: string) =>
     request<ProbeResult>(`/targets/${id}/probe`, { method: 'POST', body: JSON.stringify(message ? { message } : {}) }),
