@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { PlayCircle } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useNavigate } from 'react-router'
@@ -10,7 +10,7 @@ import { Backdrop } from '../components/visual/Backdrop'
 import { api } from '../lib/api'
 import { EXAMPLE_AGENTS } from '../lib/examples'
 import { connectionSummary } from '../lib/agentMeta'
-import { keys, useConfig, useTargets } from '../lib/queries'
+import { useConfig, useTargets } from '../lib/queries'
 
 const fadeUp = (i: number) => ({
   initial: { opacity: 0, y: 10 },
@@ -18,32 +18,22 @@ const fadeUp = (i: number) => ({
   transition: { duration: 0.5, delay: 0.06 * i, ease: [0.22, 1, 0.36, 1] as const },
 })
 
-const DEMO_NAME = 'Atlas (offline example)'
-
 /**
  * "See an example": open the curated run if the deployment pins one, otherwise run the free offline
- * demo (scripted agent and evaluators) so there is always something live to watch.
+ * demo (scripted agent and evaluators) so there is always something live to watch. The demo runs
+ * against an unsaved agent, so it never shows up in your agents or runs.
  */
 function useExample() {
   const navigate = useNavigate()
-  const qc = useQueryClient()
   const config = useConfig()
-  const targets = useTargets()
   return useMutation({
     mutationFn: async () => {
       if (config.data?.example_run_id) return config.data.example_run_id
       const travel = EXAMPLE_AGENTS[0]
-      const demo =
-        targets.data?.find((t) => t.name === DEMO_NAME && t.connection.kind === 'fake') ??
-        (await api.createTarget({ name: DEMO_NAME, description: travel.description, system_prompt: travel.prompt, connection: { kind: 'fake', behavior: 'leaky' } }))
-      const run = await api.createRun({ target_id: demo.id, num_scenarios: 6, max_turns: 4 })
+      const run = await api.createExampleRun({ name: 'Atlas (example)', description: travel.description, system_prompt: travel.prompt, num_scenarios: 6, max_turns: 4 })
       return run.id
     },
-    onSuccess: (runId) => {
-      qc.invalidateQueries({ queryKey: keys.runs })
-      qc.invalidateQueries({ queryKey: keys.targets })
-      navigate(`/runs/${runId}`)
-    },
+    onSuccess: (runId) => navigate(`/runs/${runId}`),
   })
 }
 

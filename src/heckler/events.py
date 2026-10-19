@@ -73,6 +73,12 @@ class EventBus:
     def has_channel(self, run_id: str) -> bool:
         return run_id in self._channels
 
+    def drop(self, run_id: str) -> None:
+        """Forget a run's history (it was deleted). Closes it first so live subscribers stop."""
+        if run_id in self._channels:
+            self.close(run_id)
+            del self._channels[run_id]
+
     async def subscribe(self, run_id: str, after: int = 0) -> AsyncIterator[RunEvent]:
         channel = self._channel(run_id)
         queue: asyncio.Queue[RunEvent | None] = asyncio.Queue()

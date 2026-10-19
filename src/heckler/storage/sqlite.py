@@ -103,14 +103,24 @@ class SQLiteRepository(Repository):
             raise NotFoundError(f"run {run_id} not found")
         return Run.model_validate_json(rows[0][0])
 
-    async def list_runs(self, target_id: str | None = None, limit: int = 50) -> list[Run]:
+    async def list_runs(self, target_id: str | None = None, limit: int = 50, *, example: bool | None = False) -> list[Run]:
+        where: list[str] = []
+        params: list[Any] = []
         if target_id:
-            rows = await self._run(
-                "SELECT data FROM runs WHERE target_id = ? ORDER BY created_at DESC LIMIT ?", (target_id, limit), fetch=True
-            )
-        else:
-            rows = await self._run("SELECT data FROM runs ORDER BY created_at DESC LIMIT ?", (limit,), fetch=True)
+            where.append("target_id = ?")
+            params.append(target_id)
+        if example is not None:
+            # rows written before the flag existed have no "example" key: they are regular runs
+            where.append("COALESCE(json_extract(data, '$.example'), 0) = ?")
+            params.append(int(example))
+        clause = f"WHERE {' AND '.join(where)} " if where else ""
+        rows = await self._run(f"SELECT data FROM runs {clause}ORDER BY created_at DESC LIMIT ?", (*params, limit), fetch=True)
         return [Run.model_validate_json(r[0]) for r in rows]
+
+    async def delete_run(self, run_id: str) -> None:
+        await self.get_run(run_id)
+        await self._run("DELETE FROM conversations WHERE run_id = ?", (run_id,))
+        await self._run("DELETE FROM runs WHERE id = ?", (run_id,))
 
     # --- conversations ---
     async def save_conversation(self, conversation: Conversation) -> None:

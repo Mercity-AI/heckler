@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -134,12 +135,12 @@ class RunOrchestrator:
             config.num_scenarios = len(config.scenarios)
         return config
 
-    async def start_run(self, target: Target, config: RunConfig) -> Run:
+    async def start_run(self, target: Target, config: RunConfig, *, example: bool = False) -> Run:
         config = self.normalise_config(config)
         models = self.evaluator_models(target)  # fails fast on a missing key, before anything is saved
         if config.reuse_scenarios_from_run_id:
             await self._repo.get_run(config.reuse_scenarios_from_run_id)  # 404 early if it doesn't exist
-        run = Run(target_id=target.id, target_name=target.name, config=config)
+        run = Run(target_id=target.id, target_name=target.name, config=config, example=example)
         await self._repo.save_run(run)
         self._publish(run.id, EventType.RUN_STATUS, {"status": run.status})
         task = asyncio.create_task(self._execute(run, target, models), name=f"run:{run.id}")
@@ -158,10 +159,18 @@ class RunOrchestrator:
         await asyncio.gather(task, return_exceptions=True)
         return True
 
+    async def delete_run(self, run_id: str) -> None:
+        """Stop the run if it is still going, then remove it, its conversations and its Simula artifacts."""
+        await self._repo.get_run(run_id)  # 404 before touching anything
+        await self.cancel_run(run_id)
+        await self._repo.delete_run(run_id)
+        self._bus.drop(run_id)
+        await asyncio.to_thread(shutil.rmtree, self._settings.simula_dir / run_id, True)
+
     async def recover_interrupted_runs(self) -> int:
         """Runs left non-terminal by a previous process can never finish; mark them failed."""
         count = 0
-        for run in await self._repo.list_runs(limit=1000):
+        for run in await self._repo.list_runs(limit=1000, example=None):
             if not run.status.is_terminal and run.id not in self._tasks:
                 run.status = RunStatus.FAILED
                 run.error = "Interrupted: the server stopped while this run was in progress."

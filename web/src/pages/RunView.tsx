@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, Check, ChevronRight, Copy, Repeat, Square, WifiOff } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Check, ChevronRight, Copy, Repeat, Square, WifiOff } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -149,11 +149,17 @@ export function RunViewPage() {
         <ShaderField energy={energy} heat={heat} className="-z-10" />
         <div className="mx-auto max-w-[1440px] px-8 pt-5 pb-6">
           <div className="flex items-center gap-1.5 text-[12.5px] text-ink-3">
-            <Link to="/agents" className="hover:text-ink">
-              Agents
-            </Link>
-            <ChevronRight className="size-3.5" />
-            <span className="text-ink-2">{targetName}</span>
+            {detail?.example ? (
+              <span>Example run · not saved to your runs</span>
+            ) : (
+              <>
+                <Link to="/runs" className="hover:text-ink">
+                  Runs
+                </Link>
+                <ChevronRight className="size-3.5" />
+                <span className="text-ink-2">{targetName}</span>
+              </>
+            )}
           </div>
 
           <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
@@ -191,6 +197,10 @@ export function RunViewPage() {
               {active ? (
                 <Button variant="danger" onClick={() => cancel.mutate()} loading={cancel.isPending}>
                   <Square className="size-3 fill-current" /> Stop run
+                </Button>
+              ) : detail?.example ? (
+                <Button variant="ink" onClick={() => navigate('/')}>
+                  Connect your agent <ArrowRight className="size-3.5" />
                 </Button>
               ) : (
                 detail && (

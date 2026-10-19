@@ -312,6 +312,8 @@ class Run(BaseModel):
     stats: RunStats = Field(default_factory=RunStats)
     taxonomy: dict[str, Any] | None = None
     error: str | None = None
+    # The home page's throwaway demo: runs against an unsaved agent and is left out of run listings.
+    example: bool = False
     created_at: datetime = Field(default_factory=utcnow)
     started_at: datetime | None = None
     finished_at: datetime | None = None

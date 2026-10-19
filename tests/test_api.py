@@ -152,6 +152,48 @@ def test_cancel_run(settings):
         assert client.post(f"/runs/{run_id}/cancel").status_code == 409
 
 
+def test_example_run_is_unlisted_and_replaced(client):
+    body = {"name": "Atlas (example)", "system_prompt": "You are a travel agent.", "num_scenarios": 2, "max_turns": 2}
+    first = client.post("/runs/example", json=body)
+    assert first.status_code == 202, first.text
+    first_id = first.json()["id"]
+    _read_sse(client, first_id)
+    run = client.get(f"/runs/{first_id}").json()
+    assert run["example"] and run["status"] == "completed" and len(run["conversations"]) == 2
+    assert client.get("/runs").json() == [] and client.get("/targets").json() == []
+
+    second_id = client.post("/runs/example", json=body).json()["id"]
+    _read_sse(client, second_id)
+    assert client.get(f"/runs/{first_id}").status_code == 404  # only the latest example is kept
+    assert client.get(f"/runs/{second_id}").status_code == 200
+    assert client.get("/runs").json() == []
+
+
+def test_delete_run(client, settings):
+    target_id = _create_target(client)
+    run_id = client.post("/runs", json={"target_id": target_id, "num_scenarios": 2, "max_turns": 2}).json()["id"]
+    _read_sse(client, run_id)
+    conversation_id = client.get(f"/runs/{run_id}").json()["conversations"][0]["id"]
+    assert (settings.simula_dir / run_id).exists()
+
+    assert client.delete(f"/runs/{run_id}").status_code == 204
+    assert client.get(f"/runs/{run_id}").status_code == 404
+    assert client.get(f"/runs/{run_id}/conversations/{conversation_id}").status_code == 404
+    assert client.get("/runs").json() == []
+    assert not (settings.simula_dir / run_id).exists()
+    assert client.delete(f"/runs/{run_id}").status_code == 404
+
+
+def test_delete_active_run_stops_it(settings):
+    slow = settings.model_copy(update={"fake_latency_seconds": 0.2})
+    with TestClient(create_app(slow)) as client:
+        target_id = _create_target(client)
+        run_id = client.post("/runs", json={"target_id": target_id, "num_scenarios": 4, "max_turns": 6}).json()["id"]
+        assert client.delete(f"/runs/{run_id}").status_code == 204
+        assert client.get(f"/runs/{run_id}").status_code == 404
+        assert client.get("/runs").json() == []
+
+
 def test_target_failure_marks_conversations_failed(client):
     created = client.post(
         "/targets",

@@ -97,6 +97,16 @@ class RunCreate(RunConfig):
     target_id: str
 
 
+class ExampleRunCreate(BaseModel):
+    """The home page's demo: an unsaved agent played by the free offline models."""
+
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = None
+    system_prompt: str = Field(min_length=1)
+    num_scenarios: int = Field(default=6, ge=1)
+    max_turns: int = Field(default=4, ge=1)
+
+
 class RunSummary(BaseModel):
     """Compact row for the 'previous runs' sidebar."""
 
@@ -190,13 +200,16 @@ class RunDetail(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    example: bool
     is_active: bool
     conversations: list[ConversationSummary]
 
     @classmethod
     def of(cls, run: Run, conversations: list[Conversation], is_active: bool) -> "RunDetail":
         return cls(
-            **run.model_dump(include={"id", "target_id", "target_name", "status", "config", "stats", "error", "created_at", "started_at", "finished_at"}),
+            **run.model_dump(
+                include={"id", "target_id", "target_name", "status", "config", "stats", "error", "created_at", "started_at", "finished_at", "example"}
+            ),
             is_active=is_active,
             conversations=[ConversationSummary.of(c) for c in conversations],
         )

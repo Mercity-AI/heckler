@@ -1,7 +1,7 @@
 import { AlertOctagon, Check, CircleSlash, X } from 'lucide-react'
 import { motion } from 'motion/react'
 import { cn, isActive, RUN_STATUS_LABEL } from '../lib/format'
-import { OUTCOME_LABEL, type Outcome } from '../lib/outcome'
+import { OUTCOME_LABEL, type Outcome, type RunResult } from '../lib/outcome'
 import type { ConversationStatus, RunStatus, Severity } from '../lib/types'
 
 export function StatusDot({ status, className }: { status: RunStatus | ConversationStatus; className?: string }) {
@@ -113,6 +113,15 @@ export function CancelledMark() {
   return (
     <span className="inline-flex h-5 items-center gap-1 rounded-md bg-n-100 px-1.5 font-display text-[11px] font-semibold text-ink-3">
       <CircleSlash className="size-3" /> Stopped
+    </span>
+  )
+}
+
+export function RunResultDot({ result }: { result: RunResult }) {
+  return (
+    <span className="relative inline-flex size-2 shrink-0">
+      {result.live && <span className={cn('absolute inset-0 animate-ping rounded-full opacity-50', result.dot)} />}
+      <span className={cn('relative inline-flex size-2 rounded-full', result.dot)} />
     </span>
   )
 }

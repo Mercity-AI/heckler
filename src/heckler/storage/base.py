@@ -33,7 +33,12 @@ class Repository(ABC):
     async def get_run(self, run_id: str) -> Run: ...
 
     @abstractmethod
-    async def list_runs(self, target_id: str | None = None, limit: int = 50) -> list[Run]: ...
+    async def list_runs(self, target_id: str | None = None, limit: int = 50, *, example: bool | None = False) -> list[Run]:
+        """Newest first. `example`: False skips example runs, True returns only them, None returns both."""
+
+    @abstractmethod
+    async def delete_run(self, run_id: str) -> None:
+        """Delete a run and its conversations."""
 
     # conversations
     @abstractmethod

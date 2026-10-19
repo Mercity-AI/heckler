@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from sse_starlette.sse import EventSourceResponse
 
-from ...domain.models import Conversation, RunConfig
+from ...domain.models import Conversation, FakeConnection, RunConfig, Target
 from ...events import EventType
 from ..container import Container, get_container
-from ..schemas import ConversationSummary, RunCreate, RunDetail, RunSummary
+from ..schemas import ConversationSummary, ExampleRunCreate, RunCreate, RunDetail, RunSummary
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -19,6 +19,23 @@ async def create_run(body: RunCreate, c: Container = Depends(get_container)) -> 
     target = await c.repository.get_target(body.target_id)
     config = RunConfig.model_validate(body.model_dump(exclude={"target_id"}))
     run = await c.orchestrator.start_run(target, config)
+    return RunDetail.of(run, [], is_active=True)
+
+
+@router.post("/example", response_model=RunDetail, status_code=status.HTTP_202_ACCEPTED)
+async def create_example_run(body: ExampleRunCreate, c: Container = Depends(get_container)) -> RunDetail:
+    """Run the offline demo against an unsaved agent. Nothing is added to the agents or run listings.
+
+    Only the latest example run is kept, so reloading its page still works; earlier ones are deleted.
+    """
+    for previous in await c.repository.list_runs(limit=500, example=True):
+        if not c.orchestrator.is_active(previous.id):
+            await c.orchestrator.delete_run(previous.id)
+    target = Target(
+        name=body.name, description=body.description, system_prompt=body.system_prompt, connection=FakeConnection(behavior="leaky")
+    )
+    config = RunConfig(num_scenarios=body.num_scenarios, max_turns=body.max_turns)
+    run = await c.orchestrator.start_run(target, config, example=True)
     return RunDetail.of(run, [], is_active=True)
 
 
@@ -34,6 +51,13 @@ async def get_run(run_id: str, c: Container = Depends(get_container)) -> RunDeta
     run = await c.repository.get_run(run_id)
     conversations = await c.repository.list_conversations(run_id)
     return RunDetail.of(run, conversations, is_active=c.orchestrator.is_active(run_id))
+
+
+@router.delete("/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_run(run_id: str, c: Container = Depends(get_container)) -> Response:
+    """Delete a run and its conversations. A run still in progress is stopped first."""
+    await c.orchestrator.delete_run(run_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{run_id}/cancel", response_model=RunDetail)

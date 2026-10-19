@@ -246,12 +246,21 @@ export interface RunDetail {
   created_at: string
   started_at: string | null
   finished_at: string | null
+  example: boolean
   is_active: boolean
   conversations: ConversationSummary[]
 }
 
 export interface RunCreate extends Partial<RunConfig> {
   target_id: string
+}
+
+export interface ExampleRunCreate {
+  name: string
+  description?: string | null
+  system_prompt: string
+  num_scenarios?: number
+  max_turns?: number
 }
 
 export interface PublicConfig {

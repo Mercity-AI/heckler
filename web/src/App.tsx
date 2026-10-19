@@ -6,6 +6,7 @@ import { Card, EmptyState } from './components/ui/primitives'
 import { AgentsPage } from './pages/Agents'
 import { DesignPage } from './pages/Design'
 import { HomePage } from './pages/Home'
+import { RunsPage } from './pages/Runs'
 import { RunViewPage } from './pages/RunView'
 
 function Shell() {
@@ -67,6 +68,7 @@ export default function App() {
         <Route index element={<HomePage />} />
         <Route path="evaluate/:targetId" element={<DesignPage />} />
         <Route path="agents" element={<AgentsPage />} />
+        <Route path="runs" element={<RunsPage />} />
         <Route path="runs/:runId" element={<RunViewPage />} />
         <Route path="*" element={<NotFound />} />
       </Route>
