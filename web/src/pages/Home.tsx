@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router'
 import { AgentForm } from '../components/AgentForm'
 import { Button } from '../components/ui/button'
 import { Menu } from '../components/ui/menu'
-import { Card, Eyebrow } from '../components/ui/primitives'
+import { Card } from '../components/ui/primitives'
 import { Backdrop } from '../components/visual/Backdrop'
 import { api } from '../lib/api'
 import { EXAMPLE_AGENTS } from '../lib/examples'
@@ -55,8 +55,7 @@ export function HomePage() {
       <motion.div {...fadeUp(0)} className="relative isolate overflow-hidden rounded-3xl border border-line">
         <Backdrop seed={8812} palette="light" className="-z-10" />
         <div className="px-10 py-10">
-          <Eyebrow className="text-indigo-700/80">Pre-launch agent evaluation</Eyebrow>
-          <h1 className="mt-3 max-w-[20ch] font-serif text-[44px] leading-[1.04] font-[380] tracking-[-0.02em] text-ink">
+          <h1 className="max-w-[20ch] font-serif text-[44px] leading-[1.04] font-[380] tracking-[-0.02em] text-ink">
             See how your agent behaves <em className="font-[420] text-indigo-600">before</em> your users do.
           </h1>
           <p className="mt-4 max-w-[68ch] text-[14.5px] leading-relaxed text-pretty text-ink-2">
