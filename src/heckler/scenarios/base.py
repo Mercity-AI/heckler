@@ -49,7 +49,7 @@ RoleModels = dict[str, tuple[LLMProvider, ModelSpec]]
 
 # Simula's model roles and the output budget each one gets. Roomy on purpose: a reply cut off at the
 # cap is truncated JSON, and verbose models (Claude) write long taxonomies and meta-prompt lists.
-ROLE_MAX_TOKENS = {"strategic": 8192, "bulk": 8192, "critic": 8192}
+ROLE_MAX_TOKENS = {"strategic": 12288, "bulk": 12288, "critic": 12288}
 
 
 class ScenarioSet(BaseModel):
