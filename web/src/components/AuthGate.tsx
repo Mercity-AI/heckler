@@ -1,6 +1,7 @@
 import { SignIn, useAuth } from '@clerk/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Fragment, useEffect, type ReactNode } from 'react'
+import { Link, useLocation } from 'react-router'
 import { clerkAppearance, setTokenGetter } from '../lib/auth'
 import { HecklerMark, HecklerWordmark, MercityLogoLink } from './brand'
 import { Backdrop } from './visual/Backdrop'
@@ -16,15 +17,23 @@ function SignInPage() {
           <HecklerWordmark large />
         </div>
         <SignIn routing="hash" withSignUp appearance={clerkAppearance} />
+        <nav className="flex gap-4 text-[12.5px] text-ink-3">
+          <Link to="/privacy" className="hover:text-ink">Privacy Policy</Link>
+          <Link to="/terms" className="hover:text-ink">Terms of Service</Link>
+        </nav>
       </div>
     </div>
   )
 }
 
+// Readable without an account (Google's sign-in screen links to them).
+const PUBLIC_PATHS = new Set(['/privacy', '/terms'])
+
 /** Shows the sign-in screen until there is a Clerk session, and hands the session token to the API client. */
 export function AuthGate({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn, userId, getToken } = useAuth()
   const queryClient = useQueryClient()
+  const { pathname } = useLocation()
 
   // set during render, not in an effect, so the app's first queries already carry the token
   if (isLoaded) setTokenGetter(() => getToken())
@@ -34,6 +43,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (isLoaded) return () => queryClient.clear()
   }, [isLoaded, userId, queryClient])
 
+  if (PUBLIC_PATHS.has(pathname)) return <>{children}</>
   if (!isLoaded) return null
   if (!isSignedIn) return <SignInPage />
   // remount per user so no page keeps another account's state around

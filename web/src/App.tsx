@@ -7,6 +7,7 @@ import { Card, EmptyState } from './components/ui/primitives'
 import { AgentsPage } from './pages/Agents'
 import { DesignPage } from './pages/Design'
 import { HomePage } from './pages/Home'
+import { PrivacyPage, TermsPage } from './pages/Legal'
 import { RunsPage } from './pages/Runs'
 import { RunViewPage } from './pages/RunView'
 
@@ -69,6 +70,8 @@ function NotFound() {
 export default function App() {
   return (
     <Routes>
+      <Route path="privacy" element={<PrivacyPage />} />
+      <Route path="terms" element={<TermsPage />} />
       <Route element={<Shell />}>
         <Route index element={<HomePage />} />
         <Route path="evaluate/:targetId" element={<DesignPage />} />
