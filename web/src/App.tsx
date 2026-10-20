@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect } from 'react'
 import { Link, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { Sidebar } from './components/Sidebar'
+import { MercityLogoLink } from './components/brand'
 import { Card, EmptyState } from './components/ui/primitives'
 import { AgentsPage } from './pages/Agents'
 import { DesignPage } from './pages/Design'
@@ -34,6 +35,10 @@ function Shell() {
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
       <main className="scrollbar-thin relative min-w-0 flex-1 overflow-y-auto">
+        {/* its own row on narrower screens; floats in the empty top-right corner once pages leave room for it */}
+        <div className="flex justify-end px-6 pt-4 min-[1400px]:absolute min-[1400px]:top-4 min-[1400px]:right-6 min-[1400px]:z-10 min-[1400px]:p-0">
+          <MercityLogoLink />
+        </div>
         <AnimatePresence mode="wait" initial={false}>
           <motion.div key={pageKey} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }} className="min-h-full">
             <Outlet />

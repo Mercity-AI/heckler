@@ -2,20 +2,18 @@ import { SignIn, useAuth } from '@clerk/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Fragment, useEffect, type ReactNode } from 'react'
 import { clerkAppearance, setTokenGetter } from '../lib/auth'
-import { MercityMark } from './brand'
+import { HecklerMark, HecklerWordmark, MercityLogoLink } from './brand'
 import { Backdrop } from './visual/Backdrop'
 
 function SignInPage() {
   return (
     <div className="relative isolate grid min-h-screen place-items-center overflow-hidden px-4 py-12">
       <Backdrop className="absolute inset-0 -z-10" />
+      <MercityLogoLink className="absolute top-4 right-6" />
       <div className="flex flex-col items-center gap-6">
-        <div className="flex items-center gap-2.5 text-[#1b2340]">
-          <MercityMark className="size-9" />
-          <span className="leading-none">
-            <span className="block font-display text-[17px] font-semibold tracking-[-0.01em] text-ink">Heckler</span>
-            <span className="mt-0.5 block font-serif text-[12.5px] text-ink-3 italic">by Mercity</span>
-          </span>
+        <div className="flex items-center gap-3">
+          <HecklerMark className="size-10" />
+          <HecklerWordmark large />
         </div>
         <SignIn routing="hash" withSignUp appearance={clerkAppearance} />
       </div>
