@@ -25,7 +25,6 @@ from heckler.domain.models import (
     Scenario,
 )
 from heckler.engine.conversation import ConversationRunner
-from heckler.llm.anthropic_provider import AnthropicProvider
 from heckler.llm.openai_compat import OpenAICompatibleProvider
 from heckler.targets.openai_chat import OpenAIChatTarget
 
@@ -107,39 +106,6 @@ async def test_wire_format_attacker_and_target_get_proper_multi_turn_messages():
     # Every target reply appears in exactly one message.
     for reply in ("reply one", "reply two"):
         assert sum(reply in str(m["content"]) for m in evaluation_call) == 1
-
-
-async def test_anthropic_payload_keeps_back_to_back_messages_as_separate_blocks():
-    captured = {}
-
-    async def create(**kwargs):
-        captured.update(kwargs)
-        return SimpleNamespace(
-            stop_reason="end_turn", model=kwargs["model"],
-            content=[SimpleNamespace(type="text", text="ok")],
-            usage=SimpleNamespace(input_tokens=1, output_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=0),
-        )
-
-    provider = AnthropicProvider(api_key="k", timeout=5)
-    provider._client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create)))
-    await provider.complete(
-        model="claude-opus-5-5",
-        system="sys",
-        messages=[
-            ChatMessage(role="user", content="kickoff"),
-            ChatMessage(role="assistant", content="hello"),
-            ChatMessage(role="user", content="<agent_reply>\nhi\n</agent_reply>"),
-            ChatMessage(role="user", content="[over]\n<<EVALUATE:abc>>"),
-        ],
-        max_tokens=100,
-        cache_system=True,
-    )
-    assert [m["role"] for m in captured["messages"]] == ["user", "assistant", "user"]
-    assert captured["messages"][2]["content"] == [
-        {"type": "text", "text": "<agent_reply>\nhi\n</agent_reply>"},
-        {"type": "text", "text": "[over]\n<<EVALUATE:abc>>"},
-    ]
-    assert captured["system"][0]["cache_control"] == {"type": "ephemeral"}
 
 
 def test_conversations_run_in_parallel(settings):

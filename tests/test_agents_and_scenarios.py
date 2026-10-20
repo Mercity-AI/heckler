@@ -9,6 +9,7 @@ from heckler.domain.models import AgentProfile, ChatMessage, EndReason, ModelSpe
 from heckler.llm.base import LLMError
 from heckler.llm.factory import ProviderRegistry
 from heckler.llm.fake import FakeLLMProvider
+from heckler.scenarios.base import ROLE_MAX_TOKENS
 from heckler.scenarios.simula_generator import SimulaScenarioGenerator
 from heckler.testing.fakes import build_fake_llm
 
@@ -84,14 +85,15 @@ async def test_evaluation_gives_up_after_repairs():
 
 
 async def test_simula_generates_scenarios_through_provider_layer(settings, leaky_target):
-    registry = ProviderRegistry(settings)
+    fake = ProviderRegistry(settings).get("fake")
+    models = {role: (fake, ModelSpec(provider="fake", model="fake-simula", max_tokens=n)) for role, n in ROLE_MAX_TOKENS.items()}
     progress = []
 
     async def on_progress(p):
         progress.append(p.phase)
 
-    generator = SimulaScenarioGenerator(registry=registry, models=settings.simula_models(), output_root=settings.simula_dir)
-    result = await generator.generate(target=leaky_target, count=5, focus="refund abuse", workdir_name="t1", on_progress=on_progress)
+    generator = SimulaScenarioGenerator(output_root=settings.simula_dir)
+    result = await generator.generate(target=leaky_target, count=5, focus="refund abuse", workdir_name="t1", models=models, on_progress=on_progress)
 
     assert 1 <= len(result.scenarios) <= 5
     assert all(s.source == "simula" and s.taxonomy_mix for s in result.scenarios)

@@ -1,17 +1,16 @@
-"""Resolves provider names ("anthropic", "openrouter", "openai", "fake") to shared provider instances."""
+"""Shared, server-owned LLM providers. Heckler is bring-your-own-key, so the only one is the keyless
+`fake` provider behind the offline demo; every real model call goes through the agent owner's key."""
 
 from __future__ import annotations
 
 from ..config import Settings
-from .anthropic_provider import AnthropicProvider
 from .base import LLMError, LLMProvider
-from .openai_compat import OpenAICompatibleProvider
 
-PROVIDER_NAMES = ("anthropic", "openrouter", "openai", "fake")
+PROVIDER_NAMES = ("fake",)
 
 
 class ProviderRegistry:
-    """Builds each provider once and reuses it (one HTTP connection pool per provider)."""
+    """Builds each provider once and reuses it."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -23,35 +22,15 @@ class ProviderRegistry:
         return self._providers[name]
 
     def register(self, provider: LLMProvider) -> None:
-        """Install a custom provider instance (tests, or a new backend) under its `name`."""
+        """Install a custom provider instance (tests) under its `name`."""
         self._providers[provider.name] = provider
 
     def _build(self, name: str) -> LLMProvider:
-        s = self._settings
-        if name == "anthropic":
-            return AnthropicProvider(
-                api_key=s.anthropic_api_key,
-                timeout=s.llm_timeout_seconds,
-                effort=s.anthropic_effort,
-                refusal_fallbacks=s.anthropic_refusal_fallbacks,
-            )
-        if name == "openrouter":
-            return OpenAICompatibleProvider(
-                name="openrouter",
-                base_url=s.openrouter_base_url,
-                api_key=s.openrouter_api_key,
-                timeout=s.llm_timeout_seconds,
-                default_headers={"X-Title": "Heckler"},
-            )
-        if name == "openai":
-            return OpenAICompatibleProvider(
-                name="openai", base_url=s.openai_base_url, api_key=s.openai_api_key, timeout=s.llm_timeout_seconds
-            )
         if name == "fake":
             # Imported lazily: the fake responders pull in prompt modules from other layers.
             from ..testing.fakes import build_fake_llm
 
-            return build_fake_llm(latency_seconds=s.fake_latency_seconds)
+            return build_fake_llm(latency_seconds=self._settings.fake_latency_seconds)
         raise LLMError(f"Unknown LLM provider '{name}'. Known providers: {', '.join(PROVIDER_NAMES)}.")
 
     async def aclose(self) -> None:

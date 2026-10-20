@@ -19,7 +19,6 @@ export interface OpenAIChatConnection {
   base_url: string
   model: string
   api_key?: string | null
-  api_key_env?: string | null
   headers?: Record<string, string>
   send_system_prompt?: boolean
   temperature?: number | null
@@ -267,7 +266,6 @@ export interface PublicConfig {
   defaults: { max_turns: number }
   limits: { max_turns: number; concurrency: number; num_scenarios: number }
   suggested_evaluator: { base_url: string; model: string; scenario_model: string }
-  require_user_keys: boolean
   example_run_id: string | null
 }
 

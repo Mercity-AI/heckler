@@ -1,7 +1,9 @@
+import { UserButton } from '@clerk/react'
 import { Bot, History, PanelLeftClose, PanelLeftOpen, Plus, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
+import { CLERK_KEY } from '../lib/auth'
 import { cn, relativeTime } from '../lib/format'
 import { useHealth, useRuns } from '../lib/queries'
 import type { RunSummary } from '../lib/types'
@@ -209,6 +211,11 @@ export function Sidebar() {
         <div className={cn('flex items-center gap-2 border-t border-line py-3 text-[11.5px] whitespace-nowrap text-fail', open ? 'px-4' : 'justify-center')}>
           <span className="size-1.5 shrink-0 rounded-full bg-fail" />
           {open && 'Backend offline'}
+        </div>
+      )}
+      {CLERK_KEY && (
+        <div className={cn('flex items-center border-t border-line py-3', open ? 'px-4' : 'justify-center')}>
+          <UserButton showName={open} appearance={{ elements: { userButtonBox: 'flex-row-reverse gap-2.5', userButtonOuterIdentifier: 'font-display text-[13px] font-medium text-ink-2 truncate' } }} />
         </div>
       )}
     </motion.aside>

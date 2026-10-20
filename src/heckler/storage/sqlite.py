@@ -82,8 +82,13 @@ class SQLiteRepository(Repository):
             raise NotFoundError(f"target {target_id} not found")
         return Target.model_validate_json(rows[0][0])
 
-    async def list_targets(self) -> list[Target]:
-        rows = await self._run("SELECT data FROM targets ORDER BY created_at DESC", fetch=True)
+    async def list_targets(self, owner_id: str | None = None) -> list[Target]:
+        if owner_id is None:
+            rows = await self._run("SELECT data FROM targets ORDER BY created_at DESC", fetch=True)
+        else:
+            rows = await self._run(
+                "SELECT data FROM targets WHERE json_extract(data, '$.owner_id') = ? ORDER BY created_at DESC", (owner_id,), fetch=True
+            )
         return [Target.model_validate_json(r[0]) for r in rows]
 
     async def delete_target(self, target_id: str) -> None:
@@ -103,7 +108,9 @@ class SQLiteRepository(Repository):
             raise NotFoundError(f"run {run_id} not found")
         return Run.model_validate_json(rows[0][0])
 
-    async def list_runs(self, target_id: str | None = None, limit: int = 50, *, example: bool | None = False) -> list[Run]:
+    async def list_runs(
+        self, target_id: str | None = None, limit: int = 50, *, example: bool | None = False, owner_id: str | None = None
+    ) -> list[Run]:
         where: list[str] = []
         params: list[Any] = []
         if target_id:
@@ -113,6 +120,9 @@ class SQLiteRepository(Repository):
             # rows written before the flag existed have no "example" key: they are regular runs
             where.append("COALESCE(json_extract(data, '$.example'), 0) = ?")
             params.append(int(example))
+        if owner_id is not None:
+            where.append("json_extract(data, '$.owner_id') = ?")
+            params.append(owner_id)
         clause = f"WHERE {' AND '.join(where)} " if where else ""
         rows = await self._run(f"SELECT data FROM runs {clause}ORDER BY created_at DESC LIMIT ?", (*params, limit), fetch=True)
         return [Run.model_validate_json(r[0]) for r in rows]

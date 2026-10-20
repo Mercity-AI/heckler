@@ -21,6 +21,8 @@ HECKLER_API_URL=http://127.0.0.1:8765 npm run dev
 #   PowerShell: $env:HECKLER_API_URL='http://127.0.0.1:8765'; npm run dev
 ```
 
+To require sign-in, copy `.env.example` to `.env.local` and set `VITE_CLERK_PUBLISHABLE_KEY` (and the matching key on the backend; see the root README's Auth section).
+
 For a static build that calls the API directly, set `VITE_API_URL` at build time (`VITE_API_URL=https://heckler-api.example.com npm run build`) and add the UI's origin to `HECKLER_CORS_ORIGINS`.
 
 To try it offline for free, start the backend with the fake providers (see the root README), then connect an **Offline demo** agent from the UI.

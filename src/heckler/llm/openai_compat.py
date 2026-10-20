@@ -9,7 +9,7 @@ from openai import AsyncOpenAI
 
 from ..domain.models import ChatMessage
 from .base import LLMError, LLMProvider, LLMResponse
-from .openrouter import clamp_max_tokens
+from .openrouter import clamp_max_tokens, is_openrouter
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -87,7 +87,7 @@ class OpenAICompatibleProvider(LLMProvider):
     def _system_content(self, model: str, system: str, cache_system: bool) -> Any:
         # OpenRouter forwards Anthropic-style cache_control breakpoints on content parts; other
         # models/gateways just get the plain string.
-        if cache_system and self.name == "openrouter" and model.startswith("anthropic/"):
+        if cache_system and is_openrouter(self._base_url) and model.startswith("anthropic/"):
             return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
         return system
 

@@ -60,8 +60,6 @@ class OpenAIChatConnection(BaseModel):
     base_url: str
     model: str
     api_key: SecretStr | None = None
-    # Name of an env var holding the key; preferred over storing `api_key` in the database.
-    api_key_env: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
     # True when the endpoint is a bare model: we prepend the target's system prompt ourselves.
     # False when the deployed agent already applies its own system prompt server-side.
@@ -121,6 +119,8 @@ class Target(BaseModel):
     connection: TargetConnection
     # None on agents created before evaluators were configurable: those fall back to server settings.
     evaluator: EvaluatorConnection | None = None
+    # Clerk user id of the creator; None when auth is off (and on agents saved before auth existed).
+    owner_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -315,6 +315,8 @@ class Run(BaseModel):
     error: str | None = None
     # The home page's throwaway demo: runs against an unsaved agent and is left out of run listings.
     example: bool = False
+    # Copied from the target when the run starts.
+    owner_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
     started_at: datetime | None = None
     finished_at: datetime | None = None

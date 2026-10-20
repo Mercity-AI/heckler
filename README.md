@@ -2,7 +2,7 @@
 
 Simulated attacker agents that stress-test an LLM agent **before** it ships.
 
-You register your agent (an endpoint plus its system prompt) and an evaluator model on your own key. The service then:
+You register your agent (an endpoint plus its system prompt) and an evaluator model on your own key. Heckler is strictly **bring-your-own-key**: the server holds no LLM provider keys, and every model call in a run is paid for by the key saved on the agent. The service then:
 
 1. **Maps the scenario space with [Simula](https://github.com/Mercity-AI/Simula).** It builds a taxonomy grounded in *your* system prompt (user intents, personas and emotions, pressure tactics, policy boundaries), samples weighted combinations, and generates realistic, critic-checked scenarios.
 2. **Runs every conversation at once, each with its own evaluator.** One evaluator instance per scenario role-plays its user in a live multi-turn chat; none waits for another to finish. The evaluator has no fixed personality: the user it plays (persona, mood, goal, tactics) comes entirely from its Simula scenario. Conversations are numbered `#01`, `#02`, ….
@@ -19,21 +19,20 @@ The service isn't tied to one domain. Whatever the system prompt describes (supp
 python -m venv .venv
 # Windows: .venv\Scripts\activate    macOS/Linux: source .venv/bin/activate
 pip install -e ".[dev]"
-cp .env.example .env        # then fill in OPENROUTER_API_KEY (and/or ANTHROPIC_API_KEY)
+cp .env.example .env        # no provider keys go here: users bring their own
 ```
 
 Python 3.11+ is required (Simula uses `StrEnum`). Simula installs straight from GitHub at a pinned commit.
 
 ### 1. Offline smoke test (no keys, no cost)
 
-The `fake` provider scripts every model (Simula, the attackers and a "leaky" target), so you can try the whole pipeline and API for free.
+The offline demo agent (`"kind": "fake"`) scripts every model (Simula, the evaluators and a "leaky" target), so you can try the whole pipeline and API for free.
 
 ```bash
-pytest -q                                   # 23 tests, including full end-to-end runs
+pytest -q                                   # full end-to-end runs included
 
-# terminal 1: server in offline mode
-HECKLER_ATTACKER_PROVIDER=fake HECKLER_SIMULA_PROVIDER=fake python -m heckler.main
-#   PowerShell: $env:HECKLER_ATTACKER_PROVIDER='fake'; $env:HECKLER_SIMULA_PROVIDER='fake'; python -m heckler.main
+# terminal 1: the server
+python -m heckler.main
 
 # terminal 2: watch a run live
 python scripts/live_run.py --target fake --scenarios 3 --turns 4
@@ -41,41 +40,48 @@ python scripts/live_run.py --target fake --scenarios 3 --turns 4
 
 ### 2. Real run: attack GLM with Claude
 
-Put `OPENROUTER_API_KEY` in `.env`. The defaults then use Claude Opus 5.5 for the attackers and Gemini Flash for Simula, both through OpenRouter.
+The script sends the `OPENROUTER_API_KEY` from *your* shell as the agent's own keys, exactly as a user would paste them in the UI. The server never sees it in its environment. By default, Claude Opus 5.5 runs the evaluators and Gemini Flash runs Simula, both through OpenRouter.
 
 ```bash
 python -m heckler.main                 # http://127.0.0.1:8000, docs at /docs
 
-python scripts/live_run.py --target openrouter --model z-ai/glm-5.3-flash \
+OPENROUTER_API_KEY=sk-or-... python scripts/live_run.py --target openrouter --model z-ai/glm-5.3-flash \
     --system-prompt-file examples/prompts/travel_booking_agent.txt \
     --scenarios 6 --turns 5 --concurrency 3 --probe
 ```
 
 `--probe` sends one message to the target first to check credentials. Try `examples/prompts/math_tutor.txt` for a non-support domain, or add `--focus "privacy extraction and emergencies"` to steer scenario generation.
 
-**Rough cost:** a 6-scenario × 5-turn run is about 50 Simula calls on Flash plus about 40 attacker calls on Opus. Start small, or point the attackers at something cheaper (`HECKLER_ATTACKER_MODEL=anthropic/claude-sonnet-5.5`).
+**Rough cost:** a 6-scenario × 5-turn run is about 50 Simula calls on Flash plus about 40 attacker calls on Opus. Start small, or point the evaluators at something cheaper (`--evaluator-model anthropic/claude-sonnet-5.5`).
 
 ---
 
 ## Configuration
 
-All settings come from environment variables or `.env` (see `.env.example`). Provider keys use their usual names. Everything else is prefixed `HECKLER_`.
+All settings come from environment variables or `.env` (see `.env.example`), prefixed `HECKLER_`. There are no provider key settings: Heckler is bring-your-own-key.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | – | provider credentials |
-| `HECKLER_REQUIRE_USER_KEYS` | `false` | public deployments: every agent must bring its own evaluator key; server keys are never used for user endpoints |
 | `HECKLER_EXAMPLE_RUN_ID` | – | run shown by the UI's "See an example" button (unset: an offline demo runs) |
-| `HECKLER_ATTACKER_PROVIDER` | `openrouter` | default evaluator for agents without their own: `openrouter` \| `anthropic` \| `openai` \| `fake` |
-| `HECKLER_ATTACKER_MODEL` | `anthropic/claude-opus-5.5` | use `claude-opus-5-5` with the `anthropic` provider |
-| `HECKLER_ATTACKER_MAX_TOKENS` | `16384` | per attacker turn (thinking counts toward this on Claude; lowered to the model's output cap on OpenRouter) |
-| `HECKLER_ANTHROPIC_EFFORT` | `medium` | native Anthropic only: `low`…`max` |
-| `HECKLER_ANTHROPIC_REFUSAL_FALLBACKS` | `true` | native Anthropic only: server-side refusal fallback |
-| `HECKLER_SIMULA_PROVIDER` | `openrouter` | provider for scenario generation |
-| `HECKLER_SIMULA_{STRATEGIC,BULK,CRITIC}_MODEL` | `google/gemini-3.8-flash` | Simula's three model roles |
+| `HECKLER_CLERK_PUBLISHABLE_KEY` | – | turns on sign-in (see [Auth](#auth)); unset: one local user, no sign-in |
+| `HECKLER_CLERK_AUTHORIZED_PARTIES` | – | comma-separated web origins allowed to use a session token, e.g. `http://localhost:5173` |
+| `HECKLER_SUGGESTED_EVALUATOR_BASE_URL` | `https://openrouter.ai/api/v1` | prefilled in the agent form's evaluator section |
+| `HECKLER_SUGGESTED_EVALUATOR_MODEL` | `anthropic/claude-opus-5.5` | prefilled evaluator model |
+| `HECKLER_SUGGESTED_SCENARIO_MODEL` | `google/gemini-3.8-flash` | prefilled Simula model |
 | `HECKLER_DATA_DIR` | `data` | SQLite DB and Simula artifacts |
 | `HECKLER_MAX_TURNS_LIMIT` / `HECKLER_MAX_CONCURRENCY` / `HECKLER_MAX_SCENARIOS` | `20` / `100` / `100` | request guard rails |
 | `HECKLER_CORS_ORIGINS` | `*` | comma-separated, for the frontend |
+
+### Auth
+
+Sign-in uses [Clerk](https://clerk.com). Set the same publishable key in two places:
+
+- `.env`: `HECKLER_CLERK_PUBLISHABLE_KEY=pk_test_...` (plus `HECKLER_CLERK_AUTHORIZED_PARTIES=http://localhost:5173`)
+- `web/.env.local`: `VITE_CLERK_PUBLISHABLE_KEY=pk_test_...`
+
+The API then requires a Clerk session token on every route except `/health` and `/config`. It checks the token as `Authorization: Bearer <token>` or, for the SSE stream, Clerk's same-origin `__session` cookie. Each agent and run belongs to the user who created it, and other users get a 404. The only exception is the run in `HECKLER_EXAMPLE_RUN_ID`, which every signed-in user can read. Agents and runs saved before auth was turned on have no owner, so they no longer appear in anyone's lists.
+
+The live stream relies on the cookie, so the UI and API need to share an origin, which is what the Vite proxy and a reverse proxy in production give you.
 
 ---
 
@@ -95,19 +101,25 @@ POST /targets
     "kind": "openai_chat",
     "base_url": "https://openrouter.ai/api/v1",
     "model": "z-ai/glm-5.3-flash",
-    "api_key_env": "OPENROUTER_API_KEY",
+    "api_key": "sk-or-...",
     "send_system_prompt": true
+  },
+  "evaluator": {
+    "base_url": "https://openrouter.ai/api/v1",
+    "model": "anthropic/claude-opus-5.5",
+    "scenario_model": "google/gemini-3.8-flash",
+    "api_key": "sk-or-..."
   }
 }
 ```
 
 Connection kinds:
 
-- **`openai_chat`**: any OpenAI-compatible `/chat/completions` endpoint. Set `send_system_prompt: false` if your deployed agent already applies its own system prompt. For keys, prefer `api_key_env` (looked up in the server's environment or `.env`) over an inline `api_key`. Inline keys are stored and never returned (they come back as `"***"`).
+- **`openai_chat`**: any OpenAI-compatible `/chat/completions` endpoint. Set `send_system_prompt: false` if your deployed agent already applies its own system prompt. `api_key` is required. It is stored and never returned (it comes back as `"***"`).
 - **`http`**: a custom agent backend. We POST `{"messages": [{role, content}...], ...extra_body}` and read the reply at `response_path` (a dotted path, e.g. `reply` or `choices.0.message.content`).
 - **`fake`**: offline scripted target (`behavior`: `leaky` | `compliant`).
 
-Add `"evaluator": {"base_url", "model", "scenario_model", "api_key"}` (any OpenAI-compatible endpoint) to run the simulated users, the grading and Simula on the agent owner's key. Without it, runs use the server's default models (unless `HECKLER_REQUIRE_USER_KEYS` is set); the offline `fake` agent uses scripted evaluators.
+Every agent except the offline `fake` one needs `"evaluator": {"base_url", "model", "scenario_model", "api_key"}` (any OpenAI-compatible endpoint). The simulated users, the grading and Simula all run on that key. There is no server-side fallback: an agent without an evaluator is refused (422 on save, 400 on run). The `fake` agent uses scripted evaluators.
 
 Keys are never returned: responses show `"***"`. `PUT /targets/{id}` edits an agent; send `"***"` (or omit the key) to keep a stored key. `POST /targets/test` checks unsaved settings (one message to the agent, one to the evaluator). `POST /targets/{id}/probe` sends one message to a saved agent and returns `{ok, reply | error, latency_ms}`.
 
@@ -207,4 +219,5 @@ tests/                 unit + end-to-end tests (offline)
 
 - Runs execute in the API process as asyncio tasks. Restarting the server marks in-flight runs as `failed`. A multi-worker deployment would need a job queue and a shared event bus (see the architecture doc).
 - Live event history is kept in memory per process. Finished runs remain fully available from SQLite.
-- No auth yet. Put it behind your gateway before exposing it.
+- With auth off (no Clerk key), anyone who can reach the API sees everything. Turn auth on before exposing it.
+- `scripts/live_run.py` sends no token, so it only works with auth off.
