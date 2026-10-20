@@ -1,4 +1,5 @@
 import * as RadixTooltip from '@radix-ui/react-tooltip'
+import { Check, Minus } from 'lucide-react'
 import { animate, motion, useMotionValue, useTransform } from 'motion/react'
 import { forwardRef, useEffect, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react'
 import { useSpotlight } from '../../hooks/useSpotlight'
@@ -131,6 +132,30 @@ export function Switch({ checked, onChange, label, hint }: { checked: boolean; o
 }
 
 /** Segmented control with a sliding thumb. */
+/** Square checkbox. `indeterminate` shows a dash (some, not all, selected). Clicks don't bubble. */
+export function Checkbox({ checked, indeterminate, onChange, label, className }: { checked: boolean; indeterminate?: boolean; onChange: (v: boolean) => void; label: string; className?: string }) {
+  const on = checked || indeterminate
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={indeterminate ? 'mixed' : checked}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation()
+        onChange(!checked)
+      }}
+      className={cn(
+        'grid size-4 shrink-0 place-items-center rounded-[5px] border outline-none transition-[background-color,border-color] duration-200 focus-visible:ring-2 focus-visible:ring-indigo-300',
+        on ? 'border-indigo-500 bg-indigo-500 text-white' : 'border-line-2 bg-surface hover:border-n-400',
+        className,
+      )}
+    >
+      {indeterminate ? <Minus className="size-3" strokeWidth={3} /> : checked && <Check className="size-3" strokeWidth={3} />}
+    </button>
+  )
+}
+
 export function Segmented<T extends string>({
   value,
   onChange,

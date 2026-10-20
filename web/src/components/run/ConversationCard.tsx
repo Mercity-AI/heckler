@@ -121,7 +121,8 @@ export const ConversationCard = memo(function ConversationCard({
       onClick={() => onOpen(c.id)}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onOpen(c.id))}
       className={cn(
-        'group flex h-[620px] cursor-pointer flex-col rounded-[20px] border bg-surface text-left shadow-card outline-none transition-[border-color,box-shadow,transform] duration-300 ease-out-soft hover:-translate-y-0.5 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-indigo-300',
+        // no lift on hover (it jitters with the live layout); the shadow and border ease in instead
+        'group flex h-[620px] cursor-pointer flex-col rounded-[20px] border bg-surface text-left shadow-card outline-none transition-[border-color,box-shadow] duration-500 ease-out-soft hover:shadow-lift focus-visible:ring-2 focus-visible:ring-indigo-300',
         bad ? 'border-fail/25' : c.status === 'running' ? 'border-indigo-200' : 'border-line hover:border-line-2',
       )}
     >

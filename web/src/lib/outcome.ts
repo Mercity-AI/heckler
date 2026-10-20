@@ -1,4 +1,5 @@
-import type { ConversationSummary, Evaluation } from './types'
+import { isActive } from './format'
+import type { ConversationSummary, Evaluation, RunSummary } from './types'
 
 /**
  * How a graded conversation ended, from the policy owner's point of view. Any violation, however
@@ -23,4 +24,19 @@ export const OUTCOME_COLOR: Record<Outcome, string> = {
   breached: 'var(--color-crit)',
   violated: 'var(--color-fail)',
   held: 'var(--color-pass)',
+}
+
+export interface RunResult {
+  text: string
+  dot: string
+  live?: boolean
+}
+
+/** Outcome of a run in a few words, and the colour of its dot. */
+export function runResult(run: RunSummary): RunResult {
+  if (isActive(run.status)) return { text: run.status === 'running' ? `In conversation, ${run.finished}/${run.total} done` : 'Writing scenarios', dot: 'bg-indigo-500', live: true }
+  if (run.status === 'failed') return { text: run.error ? `Failed: ${run.error}` : 'Failed', dot: 'bg-n-400' }
+  if (!run.evaluated) return { text: run.status === 'cancelled' ? 'Stopped' : 'No graded conversations', dot: 'bg-n-300' }
+  const bad = Math.max(run.with_violations, run.broken)
+  return bad ? { text: `Violated in ${bad} of ${run.evaluated}`, dot: 'bg-fail' } : { text: `Held in all ${run.evaluated}`, dot: 'bg-pass' }
 }

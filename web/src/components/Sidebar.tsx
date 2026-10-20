@@ -1,11 +1,13 @@
-import { Bot, PanelLeftClose, PanelLeftOpen, Plus, Search } from 'lucide-react'
+import { Bot, History, PanelLeftClose, PanelLeftOpen, Plus, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
-import { cn, isActive, relativeTime } from '../lib/format'
+import { cn, relativeTime } from '../lib/format'
 import { useHealth, useRuns } from '../lib/queries'
 import type { RunSummary } from '../lib/types'
 import { MercityMark } from './brand'
+import { runResult } from '../lib/outcome'
+import { RunResultDot } from './status'
 import { Kbd, Skeleton, Tooltip } from './ui/primitives'
 
 const EASE = [0.22, 1, 0.36, 1] as const
@@ -19,24 +21,6 @@ function readCollapsed() {
   } catch {
     return false
   }
-}
-
-/** Outcome of a run in a few words, and the colour of its dot. */
-function runResult(run: RunSummary): { text: string; dot: string; live?: boolean } {
-  if (isActive(run.status)) return { text: run.status === 'running' ? `In conversation, ${run.finished}/${run.total} done` : 'Writing scenarios', dot: 'bg-indigo-500', live: true }
-  if (run.status === 'failed') return { text: run.error ? `Failed: ${run.error}` : 'Failed', dot: 'bg-n-400' }
-  if (!run.evaluated) return { text: run.status === 'cancelled' ? 'Stopped' : 'No graded conversations', dot: 'bg-n-300' }
-  const bad = Math.max(run.with_violations, run.broken)
-  return bad ? { text: `Violated in ${bad} of ${run.evaluated}`, dot: 'bg-fail' } : { text: `Held in all ${run.evaluated}`, dot: 'bg-pass' }
-}
-
-function RunDot({ result }: { result: ReturnType<typeof runResult> }) {
-  return (
-    <span className="relative inline-flex size-2 shrink-0">
-      {result.live && <span className={cn('absolute inset-0 animate-ping rounded-full opacity-50', result.dot)} />}
-      <span className={cn('relative inline-flex size-2 rounded-full', result.dot)} />
-    </span>
-  )
 }
 
 function RunRow({ run, active, collapsed }: { run: RunSummary; active: boolean; collapsed: boolean }) {
@@ -58,7 +42,7 @@ function RunRow({ run, active, collapsed }: { run: RunSummary; active: boolean; 
         {active && <motion.span layoutId="sidebar-active" className="absolute inset-0 rounded-lg border border-line bg-surface shadow-card" transition={{ type: 'spring', bounce: 0.12, duration: 0.4 }} />}
         {!active && <span className="absolute inset-0 rounded-lg transition-colors duration-200 group-hover:bg-n-100" />}
         <span className="relative">
-          <RunDot result={result} />
+          <RunResultDot result={result} />
         </span>
         {!collapsed && (
           <>
@@ -66,6 +50,26 @@ function RunRow({ run, active, collapsed }: { run: RunSummary; active: boolean; 
             <span className="relative shrink-0 text-[11px] text-ink-3 tabular">{relativeTime(run.created_at).replace(' ago', '')}</span>
           </>
         )}
+      </Link>
+    </Tooltip>
+  )
+}
+
+function NavItem({ to, label, icon, current, open }: { to: string; label: string; icon: ReactNode; current: boolean; open: boolean }) {
+  return (
+    <Tooltip content={open ? null : label} side="right">
+      {/* a plain Link: the tooltip trigger merges classNames, which breaks NavLink's className function */}
+      <Link
+        to={to}
+        aria-current={current ? 'page' : undefined}
+        className={cn(
+          'flex h-9 shrink-0 items-center rounded-[10px] font-display text-[13px] font-medium whitespace-nowrap transition-colors',
+          open ? 'w-full gap-2.5 px-3.5' : 'w-9 justify-center',
+          current ? 'bg-surface text-ink shadow-card ring-1 ring-line' : 'text-ink-2 hover:bg-n-100',
+        )}
+      >
+        {icon}
+        {open && label}
       </Link>
     </Tooltip>
   )
@@ -119,6 +123,7 @@ export function Sidebar() {
   }, [runs.data, query])
 
   const onAgents = location.pathname.startsWith('/agents')
+  const onRuns = location.pathname === '/runs'
   const activeRunId = location.pathname.match(/^\/runs\/([^/]+)/)?.[1]
   const open = !collapsed
 
@@ -161,25 +166,12 @@ export function Sidebar() {
             {open && 'New evaluation'}
           </button>
         </Tooltip>
-        <Tooltip content={open ? null : 'Agents'} side="right">
-          {/* a plain Link: the tooltip trigger merges classNames, which breaks NavLink's className function */}
-          <Link
-            to="/agents"
-            aria-current={onAgents ? 'page' : undefined}
-            className={cn(
-              'flex h-9 shrink-0 items-center rounded-[10px] font-display text-[13px] font-medium whitespace-nowrap transition-colors',
-              open ? 'w-full gap-2.5 px-3.5' : 'w-9 justify-center',
-              onAgents ? 'bg-surface text-ink shadow-card ring-1 ring-line' : 'text-ink-2 hover:bg-n-100',
-            )}
-          >
-            <Bot className="size-[17px] shrink-0 text-ink-2" />
-            {open && 'Agents'}
-          </Link>
-        </Tooltip>
+        <NavItem to="/agents" label="Agents" icon={<Bot className="size-[17px] shrink-0 text-ink-2" />} current={onAgents} open={open} />
+        <NavItem to="/runs" label="All runs" icon={<History className="size-[17px] shrink-0 text-ink-2" />} current={onRuns} open={open} />
       </div>
 
       <div className={cn('mt-6 mb-1', open ? 'px-5' : 'flex justify-center')}>
-        {open ? <span className="font-display text-[12px] font-medium text-ink-3">Runs</span> : <span className="h-px w-6 bg-line" />}
+        {open ? <span className="font-display text-[12px] font-medium text-ink-3">Recent</span> : <span className="h-px w-6 bg-line" />}
       </div>
       {open && (runs.data?.length ?? 0) > 8 && (
         <div className="relative mx-3 mt-1 mb-1">

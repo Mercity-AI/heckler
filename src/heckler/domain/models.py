@@ -68,7 +68,8 @@ class OpenAIChatConnection(BaseModel):
     send_system_prompt: bool = True
     temperature: float | None = None
     # Reasoning models (GLM, DeepSeek...) spend part of this before answering; keep it roomy.
-    max_tokens: int = 2048
+    # Lowered to the model's own output cap on OpenRouter (see llm.openrouter).
+    max_tokens: int = 16384
 
 
 class HttpConnection(BaseModel):
@@ -108,7 +109,7 @@ class EvaluatorConnection(BaseModel):
     model: str
     api_key: SecretStr | None = None
     scenario_model: str | None = None
-    max_tokens: int = 8192
+    max_tokens: int = 16384
     temperature: float | None = None
 
 
@@ -312,6 +313,8 @@ class Run(BaseModel):
     stats: RunStats = Field(default_factory=RunStats)
     taxonomy: dict[str, Any] | None = None
     error: str | None = None
+    # The home page's throwaway demo: runs against an unsaved agent and is left out of run listings.
+    example: bool = False
     created_at: datetime = Field(default_factory=utcnow)
     started_at: datetime | None = None
     finished_at: datetime | None = None

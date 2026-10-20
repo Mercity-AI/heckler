@@ -1,7 +1,7 @@
 import * as RadixTooltip from '@radix-ui/react-tooltip'
 import { UserRound } from 'lucide-react'
 import { motion } from 'motion/react'
-import { forwardRef, type ReactNode } from 'react'
+import { forwardRef, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { findEvidence, type EvidenceHit } from '../../lib/evidence'
 import { cn } from '../../lib/format'
 import type { TranscriptMessage, Violation } from '../../lib/types'
@@ -109,9 +109,30 @@ export function SpeakerMark({ role, targetName, size = 'sm' }: { role: 'attacker
   )
 }
 
+// The agent under test speaks from the left, the simulated user from the right.
 const bubbleTone = {
-  attacker: 'bg-surface border border-line text-ink-2 rounded-tl-[6px] shadow-[0_1px_0_rgb(22_22_29/0.03)]',
-  target: 'bg-indigo-50 border border-indigo-100 text-ink rounded-tr-[6px]',
+  attacker: 'bg-surface border border-line text-ink-2 rounded-tr-[6px] shadow-[0_1px_0_rgb(22_22_29/0.03)]',
+  target: 'bg-indigo-50 border border-indigo-100 text-ink rounded-tl-[6px]',
+}
+
+/** Clamps long messages to a few lines with an ellipsis, fading the last lines so the cut reads as deliberate. */
+function Clamp({ lines, watch, children }: { lines: number; watch: string; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [clipped, setClipped] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = () => setClipped(el.scrollHeight - el.clientHeight > 1)
+    check()
+    const observer = new ResizeObserver(check)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [watch])
+  return (
+    <div ref={ref} className={cn(clipped && 'clamp-fade')} style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: lines, overflow: 'hidden' }}>
+      {children}
+    </div>
+  )
 }
 
 export function TypingBubble({ side, targetName, compact }: { side: 'attacker' | 'target'; targetName: string; compact?: boolean }) {
@@ -121,7 +142,7 @@ export function TypingBubble({ side, targetName, compact }: { side: 'attacker' |
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, transition: { duration: 0.1 } }}
       transition={{ duration: 0.25, ease: EASE }}
-      className={cn('flex items-start gap-2', side === 'target' && 'flex-row-reverse')}
+      className={cn('flex items-start gap-2', side === 'attacker' && 'flex-row-reverse')}
     >
       <SpeakerMark role={side} targetName={targetName} size={compact ? 'sm' : 'md'} />
       <div className={cn('flex items-center gap-1 rounded-2xl px-3 py-2.5', bubbleTone[side])}>
@@ -157,11 +178,11 @@ export const MessageBubble = forwardRef<
       initial={{ opacity: 0, y: 6, scale: 0.985 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.4, ease: EASE }}
-      style={{ originX: isTarget ? 1 : 0 }}
-      className={cn('flex items-start gap-2', isTarget && 'flex-row-reverse')}
+      style={{ originX: isTarget ? 0 : 1 }}
+      className={cn('flex items-start gap-2', !isTarget && 'flex-row-reverse')}
     >
       <SpeakerMark role={message.role} targetName={targetName} size={compact ? 'sm' : 'md'} />
-      <div className={cn('flex min-w-0 flex-col gap-1', isTarget ? 'items-end' : 'items-start', compact ? 'max-w-[86%]' : 'max-w-[82%]')}>
+      <div className={cn('flex min-w-0 flex-col gap-1', isTarget ? 'items-start' : 'items-end', compact ? 'max-w-[86%]' : 'max-w-[82%]')}>
         {showMeta && !compact && (
           <span className="flex items-center gap-1.5 px-0.5 text-[11px] text-ink-3">
             <span className="font-medium text-ink-2">{isTarget ? targetName : 'Simulated user'}</span>
@@ -174,10 +195,15 @@ export const MessageBubble = forwardRef<
             compact ? 'px-3 py-2 text-[12.5px]' : 'px-3.5 py-2.5 text-[13.5px]',
             bubbleTone[message.role],
             flagged && 'border-fail/30 bg-fail-soft/50',
-            compact && 'line-clamp-[10]',
           )}
         >
-          <Highlighted content={message.content} violations={isTarget ? violations : []} onSelect={onSelectViolation} activeViolation={activeViolation} />
+          {compact ? (
+            <Clamp lines={8} watch={message.content}>
+              <Highlighted content={message.content} violations={isTarget ? violations : []} />
+            </Clamp>
+          ) : (
+            <Highlighted content={message.content} violations={isTarget ? violations : []} onSelect={onSelectViolation} activeViolation={activeViolation} />
+          )}
         </div>
       </div>
     </motion.div>

@@ -1,6 +1,7 @@
 import type {
   Conversation,
   ConnectionTestResult,
+  ExampleRunCreate,
   ProbeResult,
   PublicConfig,
   RunCreate,
@@ -61,10 +62,19 @@ export const api = {
   probeTarget: (id: string, message?: string) =>
     request<ProbeResult>(`/targets/${id}/probe`, { method: 'POST', body: JSON.stringify(message ? { message } : {}) }),
 
-  runs: (targetId?: string) => request<RunSummary[]>(`/runs${targetId ? `?target_id=${targetId}` : ''}`),
+  runs: (opts: { targetId?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (opts.targetId) q.set('target_id', opts.targetId)
+    if (opts.limit) q.set('limit', String(opts.limit))
+    const qs = q.toString()
+    return request<RunSummary[]>(`/runs${qs ? `?${qs}` : ''}`)
+  },
   run: (id: string) => request<RunDetail>(`/runs/${id}`),
   createRun: (body: RunCreate) => request<RunDetail>('/runs', { method: 'POST', body: JSON.stringify(body) }),
+  /** The home page demo: runs offline against an unsaved agent and stays out of the run list. */
+  createExampleRun: (body: ExampleRunCreate) => request<RunDetail>('/runs/example', { method: 'POST', body: JSON.stringify(body) }),
   cancelRun: (id: string) => request<RunDetail>(`/runs/${id}/cancel`, { method: 'POST' }),
+  deleteRun: (id: string) => request<void>(`/runs/${id}`, { method: 'DELETE' }),
   taxonomy: (id: string) => request<{ taxonomy: Taxonomy | null }>(`/runs/${id}/taxonomy`),
   conversation: (runId: string, conversationId: string) => request<Conversation>(`/runs/${runId}/conversations/${conversationId}`),
 

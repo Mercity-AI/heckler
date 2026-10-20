@@ -11,9 +11,11 @@ function Tile({ icon, label, children, sub, className, tone }: { icon: ReactNode
   return (
     <div
       onPointerMove={spot}
-      style={tone === 'fail' ? ({ '--spot': '210 58 67' } as React.CSSProperties) : undefined}
+      // a quieter glow than the default: the tiles sit on the moving header field
+      style={{ '--spot-wash': 0.035, '--spot-edge': 0.28, ...(tone === 'fail' && { '--spot': '210 58 67' }) } as React.CSSProperties}
+      // no lift: the tile stays put and only its surface and shadow ease in
       className={cn(
-        'spotlight flex flex-col gap-3 rounded-2xl border bg-surface/80 p-4 shadow-card backdrop-blur-xl transition-[border-color,box-shadow,transform] duration-300 ease-out-soft hover:-translate-y-0.5 hover:bg-surface hover:shadow-lift',
+        'spotlight flex flex-col gap-3 rounded-2xl border bg-surface/80 p-4 shadow-card backdrop-blur-xl transition-[background-color,border-color,box-shadow] duration-500 ease-out-soft hover:bg-surface/95 hover:shadow-lift',
         tone === 'fail' ? 'border-fail/30' : 'border-white/70',
         className,
       )}

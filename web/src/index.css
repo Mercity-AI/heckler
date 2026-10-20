@@ -137,6 +137,8 @@
  */
 .spotlight {
   --spot: 80 72 229;
+  --spot-wash: 0.055;
+  --spot-edge: 0.5;
   position: relative;
 }
 .spotlight::before,
@@ -146,18 +148,18 @@
   border-radius: inherit;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.35s var(--ease-out-soft);
+  transition: opacity 0.5s var(--ease-out-soft);
 }
 .spotlight::before {
   inset: 0;
   z-index: 0;
-  background: radial-gradient(480px circle at var(--mx, 50%) var(--my, 50%), rgb(var(--spot) / 0.055), transparent 45%);
+  background: radial-gradient(480px circle at var(--mx, 50%) var(--my, 50%), rgb(var(--spot) / var(--spot-wash)), transparent 45%);
 }
 .spotlight::after {
   inset: -1px;
   z-index: 1;
   padding: 1px;
-  background: radial-gradient(280px circle at var(--mx, 50%) var(--my, 50%), rgb(var(--spot) / 0.5), transparent 60%);
+  background: radial-gradient(280px circle at var(--mx, 50%) var(--my, 50%), rgb(var(--spot) / var(--spot-edge)), transparent 60%);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -184,5 +186,9 @@
   }
   .fade-top {
     mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  }
+  /* a clamped message: the last line and a half fade down, leaving the ellipsis legible */
+  .clamp-fade {
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 2.75em), rgb(0 0 0 / 0.3) 100%);
   }
 }
