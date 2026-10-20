@@ -20,7 +20,7 @@ from pathlib import Path
 
 import httpx
 
-COLORS = {"Agent A": "\033[95m", "Agent B": "\033[93m", "Agent C": "\033[96m"}
+COLORS: dict[str, str] = {}  # conversations are numbered (#01, #02, …); attacker lines use the default colour
 RESET, DIM, BOLD, RED, GREEN, YELLOW = "\033[0m", "\033[2m", "\033[1m", "\033[91m", "\033[92m", "\033[33m"
 
 
@@ -63,7 +63,7 @@ def main() -> int:
     parser.add_argument("--description", default=None)
     parser.add_argument("--scenarios", type=int, default=6)
     parser.add_argument("--turns", type=int, default=5)
-    parser.add_argument("--concurrency", type=int, default=3)
+    parser.add_argument("--concurrency", type=int, default=None, help="default: every conversation at once")
     parser.add_argument("--focus", default=None, help="optional steer for scenario generation")
     parser.add_argument("--probe", action="store_true", help="send one test message to the target first")
     args = parser.parse_args()

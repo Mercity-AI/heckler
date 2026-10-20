@@ -1,0 +1,194 @@
+@import 'tailwindcss';
+
+/* Mercity design tokens (mercity.ai V2 layout), plus a reserved status scale for verdicts. */
+@theme {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Inter Tight', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  --color-n-0: #ffffff;
+  --color-n-50: #fcfcfd;
+  --color-n-100: #f3f3f7;
+  --color-n-200: #e5e5eb;
+  --color-n-300: #cfcfd8;
+  --color-n-400: #9f9fad;
+  --color-n-500: #747486;
+  --color-n-700: #3e3e4c;
+  --color-n-800: #262631;
+  --color-n-900: #16161d;
+
+  --color-ground: #fcfcfd;
+  --color-surface: #ffffff;
+  --color-ink: #16161d;
+  --color-ink-2: #3e3e4c;
+  --color-ink-3: #747486;
+  --color-line: #e5e5eb;
+  --color-line-2: #cfcfd8;
+
+  --color-indigo-50: #f4f4fc;
+  --color-indigo-100: #e9e9f7;
+  --color-indigo-200: #ceccf0;
+  --color-indigo-300: #a8a4ea;
+  --color-indigo-500: #5048e5;
+  --color-indigo-600: #3028d7;
+  --color-indigo-700: #2a24ae;
+  --color-teal-100: #e3f2f2;
+  --color-teal-500: #1f9e99;
+  --color-teal-700: #157572;
+  --color-amber-100: #fbedda;
+  --color-amber-500: #d9831a;
+  --color-amber-800: #794715;
+
+  /* status: pass / partial / fail / broken. Always shipped with an icon or a label. */
+  --color-pass: #16875f;
+  --color-pass-soft: #e4f4ec;
+  --color-warn: #b86e0a;
+  --color-warn-soft: #fcf0dc;
+  --color-fail: #d23a43;
+  --color-fail-soft: #fdebec;
+  --color-crit: #9b1c2c;
+
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --shadow-card: 0 1px 0 rgb(22 22 29 / 0.03), 0 1px 3px rgb(22 22 29 / 0.04);
+  --shadow-lift: 0 1px 0 rgb(22 22 29 / 0.03), 0 8px 24px -8px rgb(22 22 29 / 0.12);
+  --shadow-pop: 0 24px 64px -16px rgb(22 22 29 / 0.28), 0 2px 6px rgb(22 22 29 / 0.06);
+
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-blink: blink 1.2s ease-in-out infinite;
+  --animate-pulse-ring: pulse-ring 1.8s var(--ease-out-soft) infinite;
+
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+  @keyframes blink {
+    0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+    40% { opacity: 1; transform: translateY(-2px); }
+  }
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 currentColor; opacity: 0.9; }
+    100% { box-shadow: 0 0 0 7px transparent; opacity: 0.9; }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-ground text-ink font-sans text-[14px] leading-normal;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  ::selection {
+    background: var(--color-indigo-200);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-indigo-500);
+    outline-offset: 2px;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-n-300) transparent;
+  }
+  .shimmer-text {
+    background: linear-gradient(90deg, var(--color-ink-3) 0%, var(--color-ink-3) 40%, var(--color-indigo-500) 50%, var(--color-ink-3) 60%, var(--color-ink-3) 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: var(--animate-shimmer);
+  }
+  .hairline-grid {
+    background-image:
+      linear-gradient(to right, rgb(22 22 29 / 0.035) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(22 22 29 / 0.035) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer components {
+/*
+ * Spotlight hover: a soft wash and a border glow that follow the cursor (see useSpotlight).
+ * Tint per element with --spot (an "r g b" triplet).
+ */
+.spotlight {
+  --spot: 80 72 229;
+  --spot-wash: 0.055;
+  --spot-edge: 0.5;
+  position: relative;
+}
+.spotlight::before,
+.spotlight::after {
+  content: '';
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.5s var(--ease-out-soft);
+}
+.spotlight::before {
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(480px circle at var(--mx, 50%) var(--my, 50%), rgb(var(--spot) / var(--spot-wash)), transparent 45%);
+}
+.spotlight::after {
+  inset: -1px;
+  z-index: 1;
+  padding: 1px;
+  background: radial-gradient(280px circle at var(--mx, 50%) var(--my, 50%), rgb(var(--spot) / var(--spot-edge)), transparent 60%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.spotlight:hover::before,
+.spotlight:hover::after {
+  opacity: 1;
+}
+.spotlight > * {
+  position: relative;
+  z-index: 2;
+}
+}
+
+@layer utilities {
+  /* scrollbar that only shows while the pointer is over the area */
+  .scroll-quiet {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 0.3s;
+  }
+  .scroll-quiet:hover {
+    scrollbar-color: var(--color-n-300) transparent;
+  }
+  .fade-top {
+    mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  }
+  /* a clamped message: the last line and a half fade down, leaving the ellipsis legible */
+  .clamp-fade {
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 2.75em), rgb(0 0 0 / 0.3) 100%);
+  }
+}

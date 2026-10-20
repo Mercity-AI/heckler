@@ -65,7 +65,8 @@ def test_full_run_streams_live_and_scores(client):
     assert stats["total"] == stats["evaluated"] == len(run["conversations"]) > 0
     # The leaky fake target caves to "manager"/"exception" pressure, so every run should break it.
     assert stats["broken"] == stats["evaluated"] and stats["break_rate"] == 1.0
-    assert set(stats["by_agent"]) <= {"Agent A", "Agent B", "Agent C"}
+    # One evaluator per conversation, labelled by position; no shared A/B/C pool.
+    assert [c["agent_name"] for c in run["conversations"]] == [f"#{i + 1:02d}" for i in range(len(run["conversations"]))]
 
     conversation_id = run["conversations"][0]["id"]
     conversation = client.get(f"/runs/{run_id}/conversations/{conversation_id}").json()
@@ -84,6 +85,7 @@ def test_compliant_target_passes_and_rerun_reuses_scenarios(client):
     target_id = _create_target(client, behavior="compliant")
     first = client.post("/runs", json={"target_id": target_id, "num_scenarios": 3, "max_turns": 4}).json()["id"]
     _read_sse(client, first)
+    assert client.get(f"/runs/{first}").json()["config"]["concurrency"] is None  # default: all conversations at once
     second = client.post("/runs", json={"target_id": target_id, "reuse_scenarios_from_run_id": first, "max_turns": 4}).json()["id"]
     _read_sse(client, second)
 
@@ -150,6 +152,48 @@ def test_cancel_run(settings):
         assert client.post(f"/runs/{run_id}/cancel").status_code == 409
 
 
+def test_example_run_is_unlisted_and_replaced(client):
+    body = {"name": "Atlas (example)", "system_prompt": "You are a travel agent.", "num_scenarios": 2, "max_turns": 2}
+    first = client.post("/runs/example", json=body)
+    assert first.status_code == 202, first.text
+    first_id = first.json()["id"]
+    _read_sse(client, first_id)
+    run = client.get(f"/runs/{first_id}").json()
+    assert run["example"] and run["status"] == "completed" and len(run["conversations"]) == 2
+    assert client.get("/runs").json() == [] and client.get("/targets").json() == []
+
+    second_id = client.post("/runs/example", json=body).json()["id"]
+    _read_sse(client, second_id)
+    assert client.get(f"/runs/{first_id}").status_code == 404  # only the latest example is kept
+    assert client.get(f"/runs/{second_id}").status_code == 200
+    assert client.get("/runs").json() == []
+
+
+def test_delete_run(client, settings):
+    target_id = _create_target(client)
+    run_id = client.post("/runs", json={"target_id": target_id, "num_scenarios": 2, "max_turns": 2}).json()["id"]
+    _read_sse(client, run_id)
+    conversation_id = client.get(f"/runs/{run_id}").json()["conversations"][0]["id"]
+    assert (settings.simula_dir / run_id).exists()
+
+    assert client.delete(f"/runs/{run_id}").status_code == 204
+    assert client.get(f"/runs/{run_id}").status_code == 404
+    assert client.get(f"/runs/{run_id}/conversations/{conversation_id}").status_code == 404
+    assert client.get("/runs").json() == []
+    assert not (settings.simula_dir / run_id).exists()
+    assert client.delete(f"/runs/{run_id}").status_code == 404
+
+
+def test_delete_active_run_stops_it(settings):
+    slow = settings.model_copy(update={"fake_latency_seconds": 0.2})
+    with TestClient(create_app(slow)) as client:
+        target_id = _create_target(client)
+        run_id = client.post("/runs", json={"target_id": target_id, "num_scenarios": 4, "max_turns": 6}).json()["id"]
+        assert client.delete(f"/runs/{run_id}").status_code == 204
+        assert client.get(f"/runs/{run_id}").status_code == 404
+        assert client.get("/runs").json() == []
+
+
 def test_target_failure_marks_conversations_failed(client):
     created = client.post(
         "/targets",
@@ -161,3 +205,60 @@ def test_target_failure_marks_conversations_failed(client):
     assert run["status"] == "completed"
     assert run["stats"]["errored"] == run["stats"]["total"] > 0
     assert all("Target error" in c["error"] for c in run["conversations"])
+
+
+def test_simula_progress_carries_a_call_trace(client):
+    target_id = _create_target(client)
+    run_id = client.post("/runs", json={"target_id": target_id, "num_scenarios": 2, "max_turns": 2}).json()["id"]
+    calls = [e["data"]["data"]["call"] for e in _read_sse(client, run_id) if e["event"] == "scenarios.progress"]
+    assert calls and all(c["model"] and c["task"] and c["prompt"] for c in calls)
+    # each call is announced when it starts and again when it finishes, with its output
+    started = {c["id"] for c in calls if c["status"] == "running"}
+    finished = {c["id"]: c for c in calls if c["status"] == "done"}
+    assert started == set(finished) and all(c["output"] and c["duration_ms"] is not None for c in finished.values())
+
+
+EVALUATOR = {"base_url": "https://example.invalid/v1", "model": "eval-model", "scenario_model": "sim-model", "api_key": "sk-eval"}
+OPENAI_TARGET = {"kind": "openai_chat", "base_url": "https://example.invalid/v1", "model": "m", "api_key": "sk-target"}
+
+
+def test_edit_keeps_stored_keys_and_never_returns_them(client):
+    created = client.post("/targets", json={"name": "a", "system_prompt": "x", "connection": OPENAI_TARGET, "evaluator": EVALUATOR}).json()
+    assert created["evaluator"]["api_key"] == "***" and created["evaluator"]["scenario_model"] == "sim-model"
+
+    # the edit form sends masked keys back; they must survive
+    edited = client.put(
+        f"/targets/{created['id']}",
+        json={"name": "renamed", "system_prompt": "y", "connection": {**OPENAI_TARGET, "api_key": "***"}, "evaluator": {**EVALUATOR, "api_key": "***"}},
+    )
+    assert edited.status_code == 200, edited.text
+    repo = client.app.state.container.repository
+    import asyncio
+
+    saved = asyncio.run(repo.get_target(created["id"]))
+    assert saved.name == "renamed" and saved.created_at.isoformat() == created["created_at"].replace("Z", "+00:00")
+    assert saved.connection.api_key.get_secret_value() == "sk-target"
+    assert saved.evaluator.api_key.get_secret_value() == "sk-eval"
+    assert "sk-" not in client.get(f"/targets/{created['id']}").text
+
+
+def test_run_needs_an_evaluator_key(client):
+    created = client.post(
+        "/targets", json={"name": "a", "system_prompt": "x", "connection": OPENAI_TARGET, "evaluator": {**EVALUATOR, "api_key": None}}
+    ).json()
+    response = client.post("/runs", json={"target_id": created["id"]})
+    assert response.status_code == 400 and "API key" in response.json()["detail"]
+
+
+def test_require_user_keys_blocks_server_keys(settings):
+    strict = settings.model_copy(update={"require_user_keys": True})
+    with TestClient(create_app(strict)) as client:
+        env_key = {**OPENAI_TARGET, "api_key": None, "api_key_env": "OPENROUTER_API_KEY"}
+        assert client.post("/targets", json={"name": "a", "system_prompt": "x", "connection": env_key, "evaluator": EVALUATOR}).status_code == 422
+        assert client.post("/targets", json={"name": "a", "system_prompt": "x", "connection": OPENAI_TARGET}).status_code == 422
+        # the keyless offline demo still works
+        demo = _create_target(client)
+        run_id = client.post("/runs", json={"target_id": demo, "num_scenarios": 1, "max_turns": 2}).json()["id"]
+        _read_sse(client, run_id)
+        assert client.get(f"/runs/{run_id}").json()["status"] == "completed"
+        assert client.get("/config").json()["require_user_keys"] is True

@@ -1,4 +1,4 @@
-"""Run lifecycle: scenarios -> agent assignment -> parallel conversations -> live stats.
+"""Run lifecycle: scenarios -> one evaluator per conversation, all in parallel -> live stats.
 
 Runs execute as background asyncio tasks inside the API process. Everything a client needs to follow a
 run live is published on the EventBus; everything durable is written through the Repository.
@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from collections.abc import Callable
+from dataclasses import dataclass, field
 
 from ..agents.attacker import AttackerAgent
 from ..config import Settings
@@ -16,6 +18,8 @@ from ..domain.models import (
     AgentProfile,
     Conversation,
     ConversationStatus,
+    FakeConnection,
+    ModelSpec,
     Run,
     RunConfig,
     RunStatus,
@@ -24,8 +28,10 @@ from ..domain.models import (
     utcnow,
 )
 from ..events import EventBus, EventType
+from ..llm.base import LLMProvider
 from ..llm.factory import ProviderRegistry
-from ..scenarios.base import ScenarioGenerator, ScenarioProgress
+from ..llm.openai_compat import OpenAICompatibleProvider
+from ..scenarios.base import RoleModels, ScenarioGenerator, ScenarioProgress
 from ..storage.base import Repository
 from ..targets.base import TargetClient
 from .conversation import ConversationRunner
@@ -40,11 +46,23 @@ class RunValidationError(ValueError):
     pass
 
 
-def assign_agents(scenarios: list[Scenario], profiles: list[AgentProfile]) -> list[AgentProfile]:
-    """Round-robin scenarios over the attacker agents so each gets a balanced share."""
-    if not profiles:
-        raise RunValidationError("No attacker agents are configured.")
-    return [profiles[i % len(profiles)] for i in range(len(scenarios))]
+@dataclass
+class EvaluatorModels:
+    """The models one run uses: the evaluator that plays and grades every conversation, and Simula's roles."""
+
+    provider: LLMProvider
+    attacker: ModelSpec
+    simula: RoleModels
+    # Providers built for this run only (the agent owner's own key); closed when the run ends.
+    owned: list[LLMProvider] = field(default_factory=list)
+
+    async def aclose(self) -> None:
+        for provider in self.owned:
+            await provider.aclose()
+
+
+def evaluator_label(index: int) -> str:
+    return f"#{index + 1:02d}"
 
 
 class RunOrchestrator:
@@ -57,7 +75,6 @@ class RunOrchestrator:
         providers: ProviderRegistry,
         scenario_generator: ScenarioGenerator,
         target_factory: TargetFactory,
-        agent_profiles: list[AgentProfile] | None = None,
     ) -> None:
         self._settings = settings
         self._repo = repository
@@ -65,12 +82,44 @@ class RunOrchestrator:
         self._providers = providers
         self._generator = scenario_generator
         self._target_factory = target_factory
-        self._profiles = agent_profiles or settings.attacker_profiles()
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
-    @property
-    def agent_profiles(self) -> list[AgentProfile]:
-        return list(self._profiles)
+    def evaluator_models(self, target: Target) -> EvaluatorModels:
+        """Resolve which models (and whose key) a run against `target` uses.
+
+        1. The agent's own evaluator connection (the normal case: the owner's key pays).
+        2. The offline demo agent: the scripted fake models, free and keyless.
+        3. Server defaults, unless the deployment requires users to bring their own keys.
+        """
+        s = self._settings
+        ev = target.evaluator
+        if ev is not None:
+            key = ev.api_key.get_secret_value() if ev.api_key else None
+            if not key:
+                raise RunValidationError("Add an API key for the evaluator model in this agent's settings.")
+            headers = {"X-Title": "Heckler"} if "openrouter.ai" in ev.base_url else None
+            provider = OpenAICompatibleProvider(
+                name="evaluator", base_url=ev.base_url, api_key=key, timeout=s.llm_timeout_seconds, default_headers=headers
+            )
+            attacker = ModelSpec(provider="evaluator", model=ev.model, max_tokens=ev.max_tokens, temperature=ev.temperature)
+            scenario_model = ev.scenario_model or ev.model
+            simula = {
+                role: (provider, ModelSpec(provider="evaluator", model=scenario_model, max_tokens=default.max_tokens))
+                for role, default in s.simula_models().items()
+            }
+            return EvaluatorModels(provider=provider, attacker=attacker, simula=simula, owned=[provider])
+        if isinstance(target.connection, FakeConnection):
+            fake = self._providers.get("fake")
+            spec = ModelSpec(provider="fake", model="offline-demo")
+            return EvaluatorModels(provider=fake, attacker=spec, simula={role: (fake, spec) for role in s.simula_models()})
+        if s.require_user_keys:
+            raise RunValidationError("This agent has no evaluator model. Edit the agent and add the evaluator's endpoint and API key.")
+        try:
+            attacker = s.attacker_spec()
+            simula = {role: (self._providers.get(spec.provider), spec) for role, spec in s.simula_models().items()}
+            return EvaluatorModels(provider=self._providers.get(attacker.provider), attacker=attacker, simula=simula)
+        except Exception as exc:
+            raise RunValidationError(f"Evaluator model unavailable: {exc}") from exc
 
     # ------------------------------------------------------------------ public API
 
@@ -78,7 +127,7 @@ class RunOrchestrator:
         s = self._settings
         if config.max_turns > s.max_turns_limit:
             raise RunValidationError(f"max_turns must be <= {s.max_turns_limit}.")
-        if config.concurrency > s.max_concurrency:
+        if config.concurrency is not None and config.concurrency > s.max_concurrency:
             raise RunValidationError(f"concurrency must be <= {s.max_concurrency}.")
         if config.num_scenarios > s.max_scenarios:
             raise RunValidationError(f"num_scenarios must be <= {s.max_scenarios}.")
@@ -86,19 +135,15 @@ class RunOrchestrator:
             config.num_scenarios = len(config.scenarios)
         return config
 
-    async def start_run(self, target: Target, config: RunConfig) -> Run:
+    async def start_run(self, target: Target, config: RunConfig, *, example: bool = False) -> Run:
         config = self.normalise_config(config)
-        for profile in self._profiles:
-            try:
-                self._providers.get(profile.model.provider)
-            except Exception as exc:
-                raise RunValidationError(f"{profile.name}: {exc}") from exc
+        models = self.evaluator_models(target)  # fails fast on a missing key, before anything is saved
         if config.reuse_scenarios_from_run_id:
             await self._repo.get_run(config.reuse_scenarios_from_run_id)  # 404 early if it doesn't exist
-        run = Run(target_id=target.id, target_name=target.name, config=config)
+        run = Run(target_id=target.id, target_name=target.name, config=config, example=example)
         await self._repo.save_run(run)
         self._publish(run.id, EventType.RUN_STATUS, {"status": run.status})
-        task = asyncio.create_task(self._execute(run, target), name=f"run:{run.id}")
+        task = asyncio.create_task(self._execute(run, target, models), name=f"run:{run.id}")
         self._tasks[run.id] = task
         task.add_done_callback(lambda _t, run_id=run.id: self._tasks.pop(run_id, None))
         return run
@@ -114,10 +159,18 @@ class RunOrchestrator:
         await asyncio.gather(task, return_exceptions=True)
         return True
 
+    async def delete_run(self, run_id: str) -> None:
+        """Stop the run if it is still going, then remove it, its conversations and its Simula artifacts."""
+        await self._repo.get_run(run_id)  # 404 before touching anything
+        await self.cancel_run(run_id)
+        await self._repo.delete_run(run_id)
+        self._bus.drop(run_id)
+        await asyncio.to_thread(shutil.rmtree, self._settings.simula_dir / run_id, True)
+
     async def recover_interrupted_runs(self) -> int:
         """Runs left non-terminal by a previous process can never finish; mark them failed."""
         count = 0
-        for run in await self._repo.list_runs(limit=1000):
+        for run in await self._repo.list_runs(limit=1000, example=None):
             if not run.status.is_terminal and run.id not in self._tasks:
                 run.status = RunStatus.FAILED
                 run.error = "Interrupted: the server stopped while this run was in progress."
@@ -134,18 +187,18 @@ class RunOrchestrator:
 
     # ------------------------------------------------------------------ execution
 
-    async def _execute(self, run: Run, target: Target) -> None:
+    async def _execute(self, run: Run, target: Target, models: EvaluatorModels) -> None:
         conversations: list[Conversation] = []
         target_client: TargetClient | None = None
         try:
             run.started_at = utcnow()
             # Built first so a misconfigured target fails before we spend money on scenarios.
             target_client = self._target_factory(target)
-            scenarios = await self._resolve_scenarios(run, target)
+            scenarios = await self._resolve_scenarios(run, target, models)
 
             conversations = [
-                Conversation(run_id=run.id, index=i, agent_name=profile.name, scenario=scenario)
-                for i, (scenario, profile) in enumerate(zip(scenarios, assign_agents(scenarios, self._profiles)))
+                Conversation(run_id=run.id, index=i, agent_name=evaluator_label(i), scenario=scenario)
+                for i, scenario in enumerate(scenarios)
             ]
             for conversation in conversations:
                 await self._repo.save_conversation(conversation)
@@ -163,7 +216,7 @@ class RunOrchestrator:
             )
 
             await self._set_status(run, RunStatus.RUNNING)
-            await self._run_conversations(run, target, target_client, conversations)
+            await self._run_conversations(run, target, target_client, conversations, models)
 
             run.stats = compute_stats(conversations)
             await self._set_status(run, RunStatus.COMPLETED)
@@ -178,10 +231,11 @@ class RunOrchestrator:
         finally:
             if target_client is not None:
                 await target_client.aclose()
+            await models.aclose()
             self._publish(run.id, EventType.RUN_FINISHED, {"status": run.status, "stats": run.stats.model_dump(mode="json"), "error": run.error})
             self._bus.close(run.id)
 
-    async def _resolve_scenarios(self, run: Run, target: Target) -> list[Scenario]:
+    async def _resolve_scenarios(self, run: Run, target: Target, models: EvaluatorModels) -> list[Scenario]:
         config = run.config
         if config.scenarios:
             return [s.model_copy(update={"source": "manual"}) for s in config.scenarios]
@@ -199,27 +253,30 @@ class RunOrchestrator:
             self._publish(run.id, EventType.SCENARIOS_PROGRESS, progress.model_dump())
 
         result = await self._generator.generate(
-            target=target, count=config.num_scenarios, focus=config.focus, workdir_name=run.id, on_progress=on_progress
+            target=target, count=config.num_scenarios, focus=config.focus, workdir_name=run.id, on_progress=on_progress,
+            models=models.simula,
         )
         run.taxonomy = result.taxonomy
         await self._repo.save_run(run)
         return result.scenarios
 
-    async def _run_conversations(self, run: Run, target: Target, target_client: TargetClient, conversations: list[Conversation]) -> None:
-        limiter = asyncio.Semaphore(run.config.concurrency)
+    async def _run_conversations(
+        self, run: Run, target: Target, target_client: TargetClient, conversations: list[Conversation], models: EvaluatorModels
+    ) -> None:
+        # Every conversation gets its own evaluator and, by default, they all start at once.
+        limit = min(run.config.concurrency or len(conversations), self._settings.max_concurrency)
+        limiter = asyncio.Semaphore(max(1, limit))
         stats_lock = asyncio.Lock()
         runner = ConversationRunner(
             publish=lambda type_, data: self._publish(run.id, type_, data),
             persist=self._repo.save_conversation,
         )
-        profiles = {p.name: p for p in self._profiles}
 
         async def one(conversation: Conversation) -> None:
             async with limiter:
-                profile = profiles[conversation.agent_name]
                 attacker = AttackerAgent(
-                    profile=profile,
-                    provider=self._providers.get(profile.model.provider),
+                    profile=AgentProfile(name=f"Evaluator {conversation.agent_name}", model=models.attacker),
+                    provider=models.provider,
                     scenario=conversation.scenario,
                     target_name=target.name,
                     target_system_prompt=target.system_prompt,

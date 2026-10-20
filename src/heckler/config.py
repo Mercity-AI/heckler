@@ -11,7 +11,7 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .domain.models import AgentProfile, ModelSpec
+from .domain.models import ModelSpec
 
 
 class Settings(BaseSettings):
@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     attacker_provider: str = "openrouter"
     attacker_model: str = "anthropic/claude-opus-5.5"
     # Generous: Claude Opus 5.5 always thinks, and thinking tokens count against this budget.
-    attacker_max_tokens: int = 8192
+    # 16384 stays under the Anthropic SDK's non-streaming ceiling (~21k), and calls to OpenRouter
+    # are lowered to the model's own output cap (see llm.openrouter).
+    attacker_max_tokens: int = 16384
     # Anthropic-only knobs (ignored by other providers).
     anthropic_effort: str = "medium"
     anthropic_refusal_fallbacks: bool = True
@@ -45,22 +47,26 @@ class Settings(BaseSettings):
     # --- run defaults / safety limits ---
     default_max_turns: int = 6
     max_turns_limit: int = 20
-    default_concurrency: int = 3
-    max_concurrency: int = 10
+    # Every conversation runs in parallel by default; this only caps very large runs.
+    max_concurrency: int = 100
     max_scenarios: int = 100
     llm_timeout_seconds: float = 120.0
     target_timeout_seconds: float = 90.0
     # Artificial delay per call of the offline `fake` provider, so keyless demos look live.
     fake_latency_seconds: float = 0.4
 
-    # CORS for the future frontend; comma-separated origins.
+    # CORS for the web UI; comma-separated origins.
     cors_origins: str = "*"
 
-    def attacker_profiles(self) -> list[AgentProfile]:
-        """The three attacker agents. They carry no personality of their own: who the simulated user
-        is (persona, emotion, tactics) comes entirely from each Simula scenario they are handed."""
-        spec = ModelSpec(provider=self.attacker_provider, model=self.attacker_model, max_tokens=self.attacker_max_tokens)
-        return [AgentProfile(name=name, model=spec) for name in ("Agent A", "Agent B", "Agent C")]
+    # Public deployments: every agent must bring its own evaluator key, and server-side keys
+    # (env vars) are never used for or exposed to user-configured endpoints.
+    require_user_keys: bool = False
+    # A finished run to show behind the UI's "See an example" button. Unset: the button starts an offline demo.
+    example_run_id: str | None = None
+
+    def attacker_spec(self) -> ModelSpec:
+        """Server-default evaluator model, for agents that do not configure their own."""
+        return ModelSpec(provider=self.attacker_provider, model=self.attacker_model, max_tokens=self.attacker_max_tokens)
 
     def simula_models(self) -> dict[str, ModelSpec]:
         return {

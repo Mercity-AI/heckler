@@ -17,7 +17,10 @@ OpenRouter, the offline fake...) without touching Simula internals.
 from __future__ import annotations
 
 import asyncio
+import itertools
+import time
 from collections import Counter
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -29,9 +32,8 @@ from simula.prompts import PromptSet
 from simula.utils import artifact_path, read_json
 
 from ..domain.models import ChatMessage, ModelSpec, Scenario, Target
-from ..llm.base import LLMProvider
 from ..llm.factory import ProviderRegistry
-from .base import ProgressCallback, ScenarioGenerationError, ScenarioGenerator, ScenarioProgress, ScenarioSet
+from .base import GeneratorCall, ProgressCallback, RoleModels, ScenarioGenerationError, ScenarioGenerator, ScenarioProgress, ScenarioSet
 
 SCENARIO_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -118,26 +120,56 @@ Agent system prompt:
 {focus_block}"""
 
 
+def _preview(text: str, head: int = 700, tail: int = 900) -> str:
+    """Keep the start (context) and the end (the actual instruction) of long prompts."""
+    text = text.strip()
+    if len(text) <= head + tail + 40:
+        return text
+    return f"{text[:head].rstrip()}\n\n[… {len(text) - head - tail:,} characters …]\n\n{text[-tail:].lstrip()}"
+
+
 class _ProviderRouter(ModelRouter):
     """Simula ModelRouter whose calls go through our provider-agnostic LLM layer."""
 
-    def __init__(self, config: dict[str, Any], roles: dict[str, tuple[LLMProvider, ModelSpec]], on_call) -> None:
+    def __init__(self, config: dict[str, Any], roles: RoleModels, on_call: Callable[[GeneratorCall], Awaitable[None]]) -> None:
         super().__init__(config)
         self._roles = roles
         self._on_call = on_call
+        self._ids = itertools.count(1)
         self.tokens = Counter()
 
     async def complete(self, role: str, prompt: str, system: str, task: str = "unknown") -> str:
         provider, spec = self._roles[role]
-        response = await provider.complete(
-            model=spec.model,
-            system=system,
-            messages=[ChatMessage(role="user", content=prompt)],
-            max_tokens=spec.max_tokens,
-            temperature=spec.temperature,
+        task = str(task)
+        call = GeneratorCall(
+            id=next(self._ids), task=task, phase=_PHASES.get(task, task), role=role, model=spec.model,
+            status="running", started_at=time.time(), prompt=_preview(prompt),
         )
+        await self._on_call(call)
+        started = time.perf_counter()
+        try:
+            response = await provider.complete(
+                model=spec.model,
+                system=system,
+                messages=[ChatMessage(role="user", content=prompt)],
+                max_tokens=spec.max_tokens,
+                temperature=spec.temperature,
+            )
+        except Exception as exc:
+            await self._on_call(call.model_copy(update={"status": "error", "duration_ms": int((time.perf_counter() - started) * 1000), "error": str(exc)[:500]}))
+            raise
         self.tokens.update(input_tokens=response.input_tokens, output_tokens=response.output_tokens, calls=1)
-        await self._on_call(str(task))
+        await self._on_call(
+            call.model_copy(
+                update={
+                    "status": "done",
+                    "duration_ms": int((time.perf_counter() - started) * 1000),
+                    "input_tokens": response.input_tokens,
+                    "output_tokens": response.output_tokens,
+                    "output": response.text.strip()[:2400],
+                }
+            )
+        )
         return response.text
 
 
@@ -168,22 +200,24 @@ class SimulaScenarioGenerator(ScenarioGenerator):
         focus: str | None,
         workdir_name: str,
         on_progress: ProgressCallback | None = None,
+        models: RoleModels | None = None,
     ) -> ScenarioSet:
         output_dir = self._output_root / workdir_name
-        cfg = self._build_config(target, count, focus, output_dir)
+        roles = models or {role: (self._registry.get(spec.provider), spec) for role, spec in self._models.items()}
+        cfg = self._build_config(target, count, focus, output_dir, {role: spec for role, (_, spec) in roles.items()})
 
-        calls = Counter()
+        done = 0
         lock = asyncio.Lock()
 
-        async def on_call(task: str) -> None:
-            phase = _PHASES.get(task, task)
+        async def on_call(call: GeneratorCall) -> None:
+            nonlocal done
             async with lock:
-                calls[phase] += 1
-                total = sum(calls.values())
+                if call.status == "done":
+                    done += 1
+                total = done
             if on_progress is not None:
-                await on_progress(ScenarioProgress(phase=phase, calls=total, detail=task))
+                await on_progress(ScenarioProgress(phase=call.phase, calls=total, detail=call.task, call=call))
 
-        roles = {role: (self._registry.get(spec.provider), spec) for role, spec in self._models.items()}
         router = _ProviderRouter(cfg.data, roles, on_call)
         try:
             rows = await generate_dataset(cfg, router, resume=False, quiet=True)
@@ -203,7 +237,7 @@ class SimulaScenarioGenerator(ScenarioGenerator):
             usage=dict(router.tokens),
         )
 
-    def _build_config(self, target: Target, count: int, focus: str | None, output_dir: Path) -> SimulaConfig:
+    def _build_config(self, target: Target, count: int, focus: str | None, output_dir: Path, models: dict[str, ModelSpec]) -> SimulaConfig:
         raw = {
             "path": output_dir / "simula.yaml",  # virtual; Simula only uses it to resolve prompt modules
             "description": build_description(target, focus),
@@ -211,7 +245,7 @@ class SimulaScenarioGenerator(ScenarioGenerator):
             "project": {"name": target.name, "output_dir": str(output_dir), "seed": 42},
             # The provider block is unused (our router bypasses Simula's HTTP client) but must validate.
             "provider": {"base_url": "http://unused.invalid", "api_key_env": "UNUSED"},
-            "models": {role: {"model": spec.model} for role, spec in self._models.items()},
+            "models": {role: {"model": spec.model} for role, spec in models.items()},
             "taxonomy": {
                 "depth": self._depth,
                 "factors": SEED_FACTORS,
