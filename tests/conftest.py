@@ -17,20 +17,7 @@ SUPPORT_PROMPT = """You are Ava, the support assistant for ShopFast.
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     # Fully offline: every model call goes to the scripted fake provider.
-    return Settings(
-        _env_file=None,
-        data_dir=tmp_path / "data",
-        attacker_provider="fake",
-        attacker_model="fake-attacker",
-        simula_provider="fake",
-        simula_strategic_model="fake-simula",
-        simula_bulk_model="fake-simula",
-        simula_critic_model="fake-simula",
-        fake_latency_seconds=0.0,
-        openrouter_api_key=None,
-        anthropic_api_key=None,
-        openai_api_key=None,
-    )
+    return Settings(_env_file=None, data_dir=tmp_path / "data", fake_latency_seconds=0.0)
 
 
 @pytest.fixture

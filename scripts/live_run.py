@@ -2,10 +2,11 @@
 
 Talks to a running API server over HTTP only (exactly what a frontend would do).
 
-    # offline, no keys needed (server started with HECKLER_ATTACKER_PROVIDER=fake HECKLER_SIMULA_PROVIDER=fake)
+    # offline, no keys needed
     python scripts/live_run.py --target fake
 
-    # real: GLM on OpenRouter as the target, Claude attackers (server needs OPENROUTER_API_KEY)
+    # real: GLM on OpenRouter as the target, Claude evaluators. Heckler is bring-your-own-key, so the
+    # script reads OPENROUTER_API_KEY from *your* shell and sends it as the agent's own keys.
     python scripts/live_run.py --target openrouter --model z-ai/glm-5.3-flash \
         --system-prompt-file examples/prompts/travel_booking_agent.txt --scenarios 6 --turns 5
 """
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import textwrap
 from pathlib import Path
@@ -32,7 +34,7 @@ def target_payload(args: argparse.Namespace, system_prompt: str) -> dict:
             "kind": "openai_chat",
             "base_url": "https://openrouter.ai/api/v1",
             "model": args.model,
-            "api_key_env": "OPENROUTER_API_KEY",
+            "api_key": os.environ["OPENROUTER_API_KEY"],
             "send_system_prompt": True,
             "max_tokens": 2048,
         }
@@ -41,10 +43,18 @@ def target_payload(args: argparse.Namespace, system_prompt: str) -> dict:
             "kind": "openai_chat",
             "base_url": args.target_base_url,
             "model": args.model,
-            "api_key_env": args.target_api_key_env,
+            "api_key": os.environ[args.target_api_key_env],
             "send_system_prompt": True,
         }
-    return {"name": args.name, "description": args.description, "system_prompt": system_prompt, "connection": connection}
+    payload = {"name": args.name, "description": args.description, "system_prompt": system_prompt, "connection": connection}
+    if args.target != "fake":
+        payload["evaluator"] = {
+            "base_url": "https://openrouter.ai/api/v1",
+            "model": args.evaluator_model,
+            "scenario_model": args.scenario_model,
+            "api_key": os.environ["OPENROUTER_API_KEY"],
+        }
+    return payload
 
 
 def short(text: str, width: int = 110) -> str:
@@ -57,7 +67,9 @@ def main() -> int:
     parser.add_argument("--target", choices=["fake", "openrouter", "openai_compatible"], default="fake")
     parser.add_argument("--model", default="z-ai/glm-5.3-flash", help="target model id")
     parser.add_argument("--target-base-url", default="http://localhost:8001/v1")
-    parser.add_argument("--target-api-key-env", default="TARGET_API_KEY")
+    parser.add_argument("--target-api-key-env", default="TARGET_API_KEY", help="env var in your shell holding the target's key")
+    parser.add_argument("--evaluator-model", default="anthropic/claude-opus-5.5", help="OpenRouter model for the evaluators")
+    parser.add_argument("--scenario-model", default="google/gemini-3.8-flash", help="OpenRouter model for Simula")
     parser.add_argument("--system-prompt-file", type=Path, default=Path("examples/prompts/travel_booking_agent.txt"))
     parser.add_argument("--name", default="Demo agent")
     parser.add_argument("--description", default=None)

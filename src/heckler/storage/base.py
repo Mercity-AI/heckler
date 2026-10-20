@@ -20,7 +20,8 @@ class Repository(ABC):
     async def get_target(self, target_id: str) -> Target: ...
 
     @abstractmethod
-    async def list_targets(self) -> list[Target]: ...
+    async def list_targets(self, owner_id: str | None = None) -> list[Target]:
+        """Newest first. `owner_id`: only that user's targets; None returns everyone's."""
 
     @abstractmethod
     async def delete_target(self, target_id: str) -> None: ...
@@ -33,8 +34,11 @@ class Repository(ABC):
     async def get_run(self, run_id: str) -> Run: ...
 
     @abstractmethod
-    async def list_runs(self, target_id: str | None = None, limit: int = 50, *, example: bool | None = False) -> list[Run]:
-        """Newest first. `example`: False skips example runs, True returns only them, None returns both."""
+    async def list_runs(
+        self, target_id: str | None = None, limit: int = 50, *, example: bool | None = False, owner_id: str | None = None
+    ) -> list[Run]:
+        """Newest first. `example`: False skips example runs, True returns only them, None returns both.
+        `owner_id`: only that user's runs; None returns everyone's."""
 
     @abstractmethod
     async def delete_run(self, run_id: str) -> None:

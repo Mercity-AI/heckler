@@ -22,10 +22,9 @@ async def public_config(c: Container = Depends(get_container)) -> dict:
         "limits": {"max_turns": s.max_turns_limit, "concurrency": s.max_concurrency, "num_scenarios": s.max_scenarios},
         # Prefills for the connect form's evaluator section (the user still brings the key).
         "suggested_evaluator": {
-            "base_url": s.openrouter_base_url,
-            "model": s.attacker_model,
-            "scenario_model": s.simula_bulk_model,
+            "base_url": s.suggested_evaluator_base_url,
+            "model": s.suggested_evaluator_model,
+            "scenario_model": s.suggested_scenario_model,
         },
-        "require_user_keys": s.require_user_keys,
         "example_run_id": s.example_run_id,
     }

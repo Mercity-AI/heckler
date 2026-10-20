@@ -32,8 +32,7 @@ function SectionHead({ n, title, sub }: { n: number; title: string; sub: ReactNo
   )
 }
 
-function KeyHint({ saved, env }: { saved: boolean; env?: string | null }) {
-  if (env) return <>Currently using the server key {env}. Paste a key to replace it.</>
+function KeyHint({ saved }: { saved: boolean }) {
   if (saved) return <>A key is saved. Leave blank to keep it.</>
   return <>Stored on the server and never shown again.</>
 }
@@ -99,7 +98,6 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
   const [test, setTest] = useState<ConnectionTestResult | null>(null)
 
   const savedTargetKey = ic?.kind === 'openai_chat' && ic.api_key === '***'
-  const savedEnv = ic?.kind === 'openai_chat' ? ic.api_key_env : null
   const savedEvKey = ie?.api_key === '***'
   const needsEvaluator = kind !== 'fake'
 
@@ -109,14 +107,12 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
     let connection: TargetConnection
     if (kind === 'openai_chat') {
       if (!model.trim()) return 'Which model does your agent run on?'
-      const keepEnv = !apiKey && savedEnv && !config.data?.require_user_keys
-      if (!apiKey && !savedTargetKey && !keepEnv) return 'Paste the API key for your agent’s endpoint.'
+      if (!apiKey && !savedTargetKey) return 'Paste the API key for your agent’s endpoint.'
       connection = {
         kind,
         base_url: baseUrl.trim(),
         model: model.trim(),
         api_key: apiKey || (savedTargetKey ? '***' : null),
-        api_key_env: keepEnv ? savedEnv : null,
         send_system_prompt: sendPrompt,
         max_tokens: Number(maxTokens) || 16384,
         temperature: temperature === '' ? null : Number(temperature),
@@ -237,7 +233,7 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
                       <Input id="a-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="z-ai/glm-5.3-flash" className={mono} />
                     </Field>
                   </div>
-                  <Field label="API key" htmlFor="a-key" hint={<KeyHint saved={savedTargetKey} env={savedEnv} />}>
+                  <Field label="API key" htmlFor="a-key" hint={<KeyHint saved={savedTargetKey} />}>
                     <Input
                       id="a-key"
                       type="password"

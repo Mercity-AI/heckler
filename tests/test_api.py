@@ -8,6 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from heckler.api.app import create_app
+from heckler.domain.models import ModelSpec
+from heckler.engine.orchestrator import EvaluatorModels
+from heckler.scenarios.base import ROLE_MAX_TOKENS
 
 from .conftest import SUPPORT_PROMPT
 
@@ -119,6 +122,7 @@ def test_validation_and_secrets(client):
         json={
             "name": "glm", "system_prompt": "x",
             "connection": {"kind": "openai_chat", "base_url": "https://example.invalid/v1", "model": "m", "api_key": "sk-secret"},
+            "evaluator": EVALUATOR,
         },
     ).json()
     assert created["connection"]["api_key"] == "***"
@@ -194,10 +198,16 @@ def test_delete_active_run_stops_it(settings):
         assert client.get("/runs").json() == []
 
 
-def test_target_failure_marks_conversations_failed(client):
+def test_target_failure_marks_conversations_failed(client, monkeypatch):
+    # the agent brings its own evaluator; play it with the offline fake so only the target is unreachable
+    orchestrator = client.app.state.container.orchestrator
+    fake = orchestrator._providers.get("fake")
+    spec = ModelSpec(provider="fake", model="offline")
+    models = EvaluatorModels(provider=fake, attacker=spec, simula={role: (fake, spec) for role in ROLE_MAX_TOKENS})
+    monkeypatch.setattr(orchestrator, "evaluator_models", lambda _target: models)
     created = client.post(
         "/targets",
-        json={"name": "down", "system_prompt": "x", "connection": {"kind": "http", "url": "http://127.0.0.1:9/chat"}},
+        json={"name": "down", "system_prompt": "x", "connection": {"kind": "http", "url": "http://127.0.0.1:9/chat"}, "evaluator": EVALUATOR},
     ).json()
     run_id = client.post("/runs", json={"target_id": created["id"], "num_scenarios": 2, "max_turns": 2}).json()["id"]
     _read_sse(client, run_id)
@@ -250,15 +260,25 @@ def test_run_needs_an_evaluator_key(client):
     assert response.status_code == 400 and "API key" in response.json()["detail"]
 
 
-def test_require_user_keys_blocks_server_keys(settings):
-    strict = settings.model_copy(update={"require_user_keys": True})
-    with TestClient(create_app(strict)) as client:
-        env_key = {**OPENAI_TARGET, "api_key": None, "api_key_env": "OPENROUTER_API_KEY"}
-        assert client.post("/targets", json={"name": "a", "system_prompt": "x", "connection": env_key, "evaluator": EVALUATOR}).status_code == 422
-        assert client.post("/targets", json={"name": "a", "system_prompt": "x", "connection": OPENAI_TARGET}).status_code == 422
-        # the keyless offline demo still works
-        demo = _create_target(client)
-        run_id = client.post("/runs", json={"target_id": demo, "num_scenarios": 1, "max_turns": 2}).json()["id"]
-        _read_sse(client, run_id)
-        assert client.get(f"/runs/{run_id}").json()["status"] == "completed"
-        assert client.get("/config").json()["require_user_keys"] is True
+def test_server_keys_are_never_used(client, monkeypatch):
+    """Bring-your-own-key only: a key in the server's environment must never reach a run or an agent."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-server")
+    # an agent pointing at a server env var instead of pasting its own key is refused
+    env_key = {**OPENAI_TARGET, "api_key": None, "api_key_env": "OPENROUTER_API_KEY"}
+    assert client.post("/targets", json={"name": "a", "system_prompt": "x", "connection": env_key, "evaluator": EVALUATOR}).status_code == 422
+    # so is a real agent without its own evaluator
+    assert client.post("/targets", json={"name": "a", "system_prompt": "x", "connection": OPENAI_TARGET}).status_code == 422
+    # and a legacy agent saved without one cannot start a run on server keys either
+    import asyncio
+
+    from heckler.domain.models import OpenAIChatConnection, Target
+
+    legacy = Target(name="old", system_prompt="x", connection=OpenAIChatConnection(**OPENAI_TARGET))
+    asyncio.run(client.app.state.container.repository.save_target(legacy))
+    response = client.post("/runs", json={"target_id": legacy.id})
+    assert response.status_code == 400 and "evaluator" in response.json()["detail"]
+    # the keyless offline demo still works
+    demo = _create_target(client)
+    run_id = client.post("/runs", json={"target_id": demo, "num_scenarios": 1, "max_turns": 2}).json()["id"]
+    _read_sse(client, run_id)
+    assert client.get(f"/runs/{run_id}").json()["status"] == "completed"

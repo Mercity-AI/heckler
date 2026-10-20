@@ -11,6 +11,7 @@ import type {
   TargetCreate,
   Taxonomy,
 } from './types'
+import { authHeaders } from './auth'
 
 export const API_BASE: string = import.meta.env.VITE_API_URL ?? '/api'
 
@@ -27,7 +28,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...init,
-      headers: { 'content-type': 'application/json', ...init?.headers },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()), ...init?.headers },
     })
   } catch {
     throw new ApiError(0, 'Can’t reach the Heckler backend. Is it running?')
@@ -78,5 +79,6 @@ export const api = {
   taxonomy: (id: string) => request<{ taxonomy: Taxonomy | null }>(`/runs/${id}/taxonomy`),
   conversation: (runId: string, conversationId: string) => request<Conversation>(`/runs/${runId}/conversations/${conversationId}`),
 
+  /** EventSource can't send headers: with Clerk on, the same-origin `__session` cookie authenticates it. */
   eventsUrl: (runId: string) => `${API_BASE}/runs/${runId}/events`,
 }

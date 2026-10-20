@@ -1,11 +1,13 @@
+import { UserButton } from '@clerk/react'
 import { Bot, History, PanelLeftClose, PanelLeftOpen, Plus, Search } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
+import { CLERK_KEY } from '../lib/auth'
 import { cn, relativeTime } from '../lib/format'
 import { useHealth, useRuns } from '../lib/queries'
 import type { RunSummary } from '../lib/types'
-import { MercityMark } from './brand'
+import { HecklerMark, HecklerWordmark } from './brand'
 import { runResult } from '../lib/outcome'
 import { RunResultDot } from './status'
 import { Kbd, Skeleton, Tooltip } from './ui/primitives'
@@ -135,11 +137,10 @@ export function Sidebar() {
       className="flex h-full shrink-0 flex-col overflow-hidden border-r border-line bg-n-50/70"
     >
       <div className={cn('flex items-center pt-4 pb-4', open ? 'gap-2.5 px-4' : 'flex-col gap-2 px-0')}>
-        <Link to="/" aria-label="Heckler home" className={cn('flex min-w-0 items-center gap-2.5 text-[#1b2340]', open ? 'flex-1' : 'size-9 justify-center')}>
-          <MercityMark className="size-8" />
-          <Reveal show={open} className="leading-none whitespace-nowrap">
-            <span className="block font-display text-[15px] font-semibold tracking-[-0.01em] text-ink">Heckler</span>
-            <span className="mt-0.5 block font-serif text-[12px] text-ink-3 italic">by Mercity</span>
+        <Link to="/" aria-label="Heckler home" className={cn('flex min-w-0 items-center gap-2.5', open ? 'flex-1' : 'size-9 justify-center')}>
+          <HecklerMark className="size-8" />
+          <Reveal show={open}>
+            <HecklerWordmark />
           </Reveal>
         </Link>
         <Tooltip content={<span>{open ? 'Collapse' : 'Expand'} sidebar <Kbd>[</Kbd></span>} side="right">
@@ -209,6 +210,11 @@ export function Sidebar() {
         <div className={cn('flex items-center gap-2 border-t border-line py-3 text-[11.5px] whitespace-nowrap text-fail', open ? 'px-4' : 'justify-center')}>
           <span className="size-1.5 shrink-0 rounded-full bg-fail" />
           {open && 'Backend offline'}
+        </div>
+      )}
+      {CLERK_KEY && (
+        <div className={cn('flex items-center border-t border-line py-3', open ? 'px-4' : 'justify-center')}>
+          <UserButton showName={open} appearance={{ elements: { userButtonBox: 'flex-row-reverse gap-2.5', userButtonOuterIdentifier: 'font-display text-[13px] font-medium text-ink-2 truncate' } }} />
         </div>
       )}
     </motion.aside>

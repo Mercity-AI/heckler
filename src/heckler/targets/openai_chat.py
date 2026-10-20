@@ -15,7 +15,7 @@ from .base import TargetClient, TargetError
 class OpenAIChatTarget(TargetClient):
     def __init__(self, connection: OpenAIChatConnection, *, system_prompt: str, api_key: str | None, timeout: float) -> None:
         if not api_key:
-            raise TargetError("No API key for the target endpoint (set connection.api_key or connection.api_key_env).")
+            raise TargetError("No API key for the target endpoint (set connection.api_key).")
         self._conn = connection
         self._system_prompt = system_prompt
         self._client = AsyncOpenAI(

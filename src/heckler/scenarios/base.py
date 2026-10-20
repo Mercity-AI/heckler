@@ -44,8 +44,11 @@ class ScenarioProgress(BaseModel):
 
 ProgressCallback = Callable[[ScenarioProgress], Awaitable[None]]
 
-# role -> (provider, model) for one generation; lets a run use the agent owner's own key.
+# role -> (provider, model) for one generation; always the agent owner's own key (or the offline fake).
 RoleModels = dict[str, tuple[LLMProvider, ModelSpec]]
+
+# Simula's model roles and the output budget each one gets.
+ROLE_MAX_TOKENS = {"strategic": 4096, "bulk": 4096, "critic": 2048}
 
 
 class ScenarioSet(BaseModel):
@@ -63,10 +66,7 @@ class ScenarioGenerator(ABC):
         count: int,
         focus: str | None,
         workdir_name: str,
+        models: RoleModels,
         on_progress: ProgressCallback | None = None,
-        models: RoleModels | None = None,
     ) -> ScenarioSet:
-        """Produce up to `count` scenarios tailored to `target`'s system prompt.
-
-        `models` overrides the generator's default models for this call (one per Simula role).
-        """
+        """Produce up to `count` scenarios tailored to `target`'s system prompt, with one model per Simula role."""

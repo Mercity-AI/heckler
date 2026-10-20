@@ -15,6 +15,7 @@ from ..scenarios.simula_generator import SimulaScenarioGenerator
 from ..storage.base import Repository
 from ..storage.sqlite import SQLiteRepository
 from ..targets.factory import build_target_client
+from .clerk import ClerkVerifier, issuer_from_publishable_key
 
 
 @dataclass
@@ -25,6 +26,8 @@ class Container:
     providers: ProviderRegistry
     scenario_generator: ScenarioGenerator
     orchestrator: RunOrchestrator
+    # None: auth is off (no Clerk key configured).
+    auth: ClerkVerifier | None = None
 
     @classmethod
     def build(
@@ -38,9 +41,7 @@ class Container:
         repository = repository or SQLiteRepository(settings.db_path)
         providers = providers or ProviderRegistry(settings)
         bus = EventBus()
-        scenario_generator = scenario_generator or SimulaScenarioGenerator(
-            registry=providers, models=settings.simula_models(), output_root=settings.simula_dir
-        )
+        scenario_generator = scenario_generator or SimulaScenarioGenerator(output_root=settings.simula_dir)
         orchestrator = RunOrchestrator(
             settings=settings,
             repository=repository,
@@ -49,7 +50,11 @@ class Container:
             scenario_generator=scenario_generator,
             target_factory=lambda target: build_target_client(target, settings),
         )
-        return cls(settings, repository, bus, providers, scenario_generator, orchestrator)
+        auth = None
+        if settings.clerk_publishable_key:
+            parties = [p.strip() for p in settings.clerk_authorized_parties.split(",") if p.strip()]
+            auth = ClerkVerifier(issuer_from_publishable_key(settings.clerk_publishable_key), parties)
+        return cls(settings, repository, bus, providers, scenario_generator, orchestrator, auth)
 
     async def aclose(self) -> None:
         await self.orchestrator.shutdown()

@@ -10,8 +10,8 @@ each mix into a meta-prompt, generates a schema-valid record, and critiques/refi
 - a JSON *schema* matching our Scenario model.
 
 Simula's own ModelRouter only speaks OpenAI-compatible HTTP. We subclass it and override its single
-public call point, `complete`, so Simula runs on any provider from our registry (Anthropic,
-OpenRouter, the offline fake...) without touching Simula internals.
+public call point, `complete`, so Simula runs on whatever provider the run hands it (the agent
+owner's own evaluator key, or the offline fake) without touching Simula internals.
 """
 
 from __future__ import annotations
@@ -32,7 +32,6 @@ from simula.prompts import PromptSet
 from simula.utils import artifact_path, read_json
 
 from ..domain.models import ChatMessage, ModelSpec, Scenario, Target
-from ..llm.factory import ProviderRegistry
 from .base import GeneratorCall, ProgressCallback, RoleModels, ScenarioGenerationError, ScenarioGenerator, ScenarioProgress, ScenarioSet
 
 SCENARIO_SCHEMA: dict[str, Any] = {
@@ -177,15 +176,11 @@ class SimulaScenarioGenerator(ScenarioGenerator):
     def __init__(
         self,
         *,
-        registry: ProviderRegistry,
-        models: dict[str, ModelSpec],
         output_root: Path,
         taxonomy_depth: int = 1,
         children_per_node: int = 4,
         concurrency: int = 4,
     ) -> None:
-        self._registry = registry
-        self._models = models
         self._output_root = output_root
         self._depth = taxonomy_depth
         self._children = children_per_node
@@ -199,11 +194,11 @@ class SimulaScenarioGenerator(ScenarioGenerator):
         count: int,
         focus: str | None,
         workdir_name: str,
+        models: RoleModels,
         on_progress: ProgressCallback | None = None,
-        models: RoleModels | None = None,
     ) -> ScenarioSet:
         output_dir = self._output_root / workdir_name
-        roles = models or {role: (self._registry.get(spec.provider), spec) for role, spec in self._models.items()}
+        roles = models
         cfg = self._build_config(target, count, focus, output_dir, {role: spec for role, (_, spec) in roles.items()})
 
         done = 0

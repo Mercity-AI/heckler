@@ -31,7 +31,7 @@ from ..events import EventBus, EventType
 from ..llm.base import LLMProvider
 from ..llm.factory import ProviderRegistry
 from ..llm.openai_compat import OpenAICompatibleProvider
-from ..scenarios.base import RoleModels, ScenarioGenerator, ScenarioProgress
+from ..scenarios.base import ROLE_MAX_TOKENS, RoleModels, ScenarioGenerator, ScenarioProgress
 from ..storage.base import Repository
 from ..targets.base import TargetClient
 from .conversation import ConversationRunner
@@ -85,11 +85,12 @@ class RunOrchestrator:
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     def evaluator_models(self, target: Target) -> EvaluatorModels:
-        """Resolve which models (and whose key) a run against `target` uses.
+        """Resolve which models a run against `target` uses. Heckler is bring-your-own-key only:
 
-        1. The agent's own evaluator connection (the normal case: the owner's key pays).
+        1. The agent's own evaluator connection: the owner's key pays for every call.
         2. The offline demo agent: the scripted fake models, free and keyless.
-        3. Server defaults, unless the deployment requires users to bring their own keys.
+
+        Anything else is refused. There is no server key to fall back to.
         """
         s = self._settings
         ev = target.evaluator
@@ -104,22 +105,15 @@ class RunOrchestrator:
             attacker = ModelSpec(provider="evaluator", model=ev.model, max_tokens=ev.max_tokens, temperature=ev.temperature)
             scenario_model = ev.scenario_model or ev.model
             simula = {
-                role: (provider, ModelSpec(provider="evaluator", model=scenario_model, max_tokens=default.max_tokens))
-                for role, default in s.simula_models().items()
+                role: (provider, ModelSpec(provider="evaluator", model=scenario_model, max_tokens=max_tokens))
+                for role, max_tokens in ROLE_MAX_TOKENS.items()
             }
             return EvaluatorModels(provider=provider, attacker=attacker, simula=simula, owned=[provider])
         if isinstance(target.connection, FakeConnection):
             fake = self._providers.get("fake")
             spec = ModelSpec(provider="fake", model="offline-demo")
-            return EvaluatorModels(provider=fake, attacker=spec, simula={role: (fake, spec) for role in s.simula_models()})
-        if s.require_user_keys:
-            raise RunValidationError("This agent has no evaluator model. Edit the agent and add the evaluator's endpoint and API key.")
-        try:
-            attacker = s.attacker_spec()
-            simula = {role: (self._providers.get(spec.provider), spec) for role, spec in s.simula_models().items()}
-            return EvaluatorModels(provider=self._providers.get(attacker.provider), attacker=attacker, simula=simula)
-        except Exception as exc:
-            raise RunValidationError(f"Evaluator model unavailable: {exc}") from exc
+            return EvaluatorModels(provider=fake, attacker=spec, simula={role: (fake, spec) for role in ROLE_MAX_TOKENS})
+        raise RunValidationError("This agent has no evaluator model. Edit the agent and add the evaluator's endpoint and API key.")
 
     # ------------------------------------------------------------------ public API
 
@@ -140,7 +134,7 @@ class RunOrchestrator:
         models = self.evaluator_models(target)  # fails fast on a missing key, before anything is saved
         if config.reuse_scenarios_from_run_id:
             await self._repo.get_run(config.reuse_scenarios_from_run_id)  # 404 early if it doesn't exist
-        run = Run(target_id=target.id, target_name=target.name, config=config, example=example)
+        run = Run(target_id=target.id, target_name=target.name, config=config, example=example, owner_id=target.owner_id)
         await self._repo.save_run(run)
         self._publish(run.id, EventType.RUN_STATUS, {"status": run.status})
         task = asyncio.create_task(self._execute(run, target, models), name=f"run:{run.id}")
