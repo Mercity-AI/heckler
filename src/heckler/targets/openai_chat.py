@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import openai
@@ -10,6 +11,8 @@ from openai import AsyncOpenAI
 from ..domain.models import ChatMessage, OpenAIChatConnection
 from ..llm.openrouter import clamp_max_tokens
 from .base import TargetClient, TargetError
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIChatTarget(TargetClient):
@@ -38,13 +41,20 @@ class OpenAIChatTarget(TargetClient):
         try:
             response = await self._client.chat.completions.create(**kwargs)
         except openai.APIStatusError as exc:
+            logger.warning("target %s HTTP %s: %s", self._conn.model, exc.status_code, exc.message)
             raise TargetError(f"Target returned HTTP {exc.status_code}: {exc.message}") from exc
         except openai.APIConnectionError as exc:
+            logger.warning("target could not reach %s: %s", self._conn.base_url, exc)
             raise TargetError(f"Could not reach target at {self._conn.base_url}: {exc}") from exc
         if not response.choices:
             raise TargetError("Target returned no choices.")
         choice = response.choices[0]
         text = (choice.message.content or "").strip()
+        usage = response.usage
+        logger.debug(
+            "target %s: %s in / %s out tokens, stop=%s, %d chars",
+            self._conn.model, getattr(usage, "prompt_tokens", "?"), getattr(usage, "completion_tokens", "?"), choice.finish_reason, len(text),
+        )
         if not text:
             hint = " (hit max_tokens while reasoning; raise connection.max_tokens)" if choice.finish_reason == "length" else ""
             raise TargetError(f"Target returned an empty reply{hint}.")

@@ -66,6 +66,7 @@ export const END_REASON_LABEL: Record<string, string> = {
   max_turns: 'Reached turn limit',
   target_error: 'Target errored',
   attacker_error: 'Evaluator errored',
+  attacker_stalled: 'Evaluator stopped early',
   cancelled: 'Cancelled',
 }
 

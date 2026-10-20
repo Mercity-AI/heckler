@@ -186,9 +186,15 @@ class RunOrchestrator:
         target_client: TargetClient | None = None
         try:
             run.started_at = utcnow()
+            logger.info(
+                "run %s started: agent %r, target %s, evaluator %s, %d scenarios x %d turns",
+                run.id, target.name, getattr(target.connection, "model", target.connection.kind), models.attacker.model,
+                run.config.num_scenarios, run.config.max_turns,
+            )
             # Built first so a misconfigured target fails before we spend money on scenarios.
             target_client = self._target_factory(target)
             scenarios = await self._resolve_scenarios(run, target, models)
+            logger.info("run %s: %d scenarios ready, starting conversations", run.id, len(scenarios))
 
             conversations = [
                 Conversation(run_id=run.id, index=i, agent_name=evaluator_label(i), scenario=scenario)
@@ -226,6 +232,13 @@ class RunOrchestrator:
             if target_client is not None:
                 await target_client.aclose()
             await models.aclose()
+            s = run.stats
+            logger.info(
+                "run %s finished: %s; %d/%d evaluated, %d passed, %d failed, %d broken, %d errored, mean score %s, "
+                "evaluator tokens %d in / %d out%s",
+                run.id, run.status, s.evaluated, s.total, s.passed, s.failed, s.broken, s.errored, s.mean_score,
+                s.attacker_usage.input_tokens, s.attacker_usage.output_tokens, f"; error: {run.error}" if run.error else "",
+            )
             self._publish(run.id, EventType.RUN_FINISHED, {"status": run.status, "stats": run.stats.model_dump(mode="json"), "error": run.error})
             self._bus.close(run.id)
 

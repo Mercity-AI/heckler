@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 
-from ..agents.attacker import AttackerAgent
+from ..agents.attacker import AttackerAgent, AttackerStalledError
 from ..domain.models import (
     ChatMessage,
     Conversation,
@@ -31,6 +32,11 @@ def target_view(transcript: list[TranscriptMessage]) -> list[ChatMessage]:
     return [ChatMessage(role="user" if m.role == "attacker" else "assistant", content=m.content) for m in transcript]
 
 
+def _label(conversation: Conversation) -> str:
+    """How log lines name a conversation: its run plus the #NN the UI shows."""
+    return f"{conversation.run_id} #{conversation.index + 1:02d}"
+
+
 class ConversationRunner:
     def __init__(self, *, publish: Publish, persist: Persist) -> None:
         self._publish = publish
@@ -44,6 +50,11 @@ class ConversationRunner:
 
         try:
             conversation.end_reason = await self._play(conversation, attacker, target, max_turns)
+            logger.info(
+                "%s ended: %s after %d target replies%s",
+                _label(conversation), conversation.end_reason, sum(m.role == "target" for m in conversation.messages),
+                f" ({conversation.error})" if conversation.error else "",
+            )
             await self._evaluate(conversation, attacker)
         except asyncio.CancelledError:
             conversation.status = ConversationStatus.CANCELLED
@@ -62,8 +73,14 @@ class ConversationRunner:
         for turn in range(1, max_turns + 1):
             try:
                 attacker_turn = await attacker.next_message(conversation.messages)
+            except AttackerStalledError as exc:
+                # Not a crash: grade what was said so far (_evaluate fails it if the target never replied).
+                conversation.error = f"Evaluator stopped early: {exc}"
+                logger.warning("%s turn %d: %s", _label(conversation), turn, exc)
+                return EndReason.ATTACKER_STALLED
             except LLMError as exc:
                 conversation.error = f"Attacker error: {exc}"
+                logger.warning("%s turn %d: attacker error: %s", _label(conversation), turn, exc)
                 return EndReason.ATTACKER_ERROR
 
             if attacker_turn.text:
@@ -71,11 +88,17 @@ class ConversationRunner:
             if not attacker_turn.text:  # bare END token
                 return EndReason.ATTACKER_ENDED
 
+            started = time.perf_counter()
             try:
                 reply = await target.reply(target_view(conversation.messages))
             except TargetError as exc:
                 conversation.error = f"Target error: {exc}"
+                logger.warning("%s turn %d: target error: %s", _label(conversation), turn, exc)
                 return EndReason.TARGET_ERROR
+            logger.info(
+                "%s turn %d: attacker %d chars, target %d chars in %.1fs",
+                _label(conversation), turn, len(attacker_turn.text), len(reply), time.perf_counter() - started,
+            )
             await self._append(conversation, TranscriptMessage(role="target", content=reply, turn=turn))
 
             if attacker_turn.wants_to_end:  # parting line delivered, target answered
@@ -97,6 +120,11 @@ class ConversationRunner:
         except LLMError as exc:
             self._fail(conversation, f"Evaluation failed: {exc}")
             return
+        evaluation = conversation.evaluation
+        logger.info(
+            "%s graded: %s %d/100, broken=%s, %d violation(s)",
+            _label(conversation), evaluation.verdict, evaluation.score, evaluation.broken, len(evaluation.policy_violations),
+        )
         conversation.status = ConversationStatus.COMPLETED
         self._publish(
             EventType.CONVERSATION_COMPLETED,
@@ -114,6 +142,7 @@ class ConversationRunner:
         await self._persist(conversation)
 
     def _fail(self, conversation: Conversation, error: str) -> None:
+        logger.warning("%s failed: %s", _label(conversation), error)
         conversation.status = ConversationStatus.FAILED
         conversation.error = error
         self._publish(EventType.CONVERSATION_FAILED, {"conversation_id": conversation.id, "error": error})

@@ -2,7 +2,7 @@
 
 export type RunStatus = 'queued' | 'generating_scenarios' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type ConversationStatus = 'pending' | 'running' | 'evaluating' | 'completed' | 'failed' | 'cancelled'
-export type EndReason = 'attacker_ended' | 'max_turns' | 'target_error' | 'attacker_error' | 'cancelled'
+export type EndReason = 'attacker_ended' | 'max_turns' | 'target_error' | 'attacker_error' | 'attacker_stalled' | 'cancelled'
 export type Verdict = 'pass' | 'partial' | 'fail'
 export type Severity = 'low' | 'medium' | 'high' | 'critical'
 export type Difficulty = 'easy' | 'medium' | 'hard'
