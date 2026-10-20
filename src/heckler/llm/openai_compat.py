@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import openai
@@ -10,6 +11,8 @@ from openai import AsyncOpenAI
 from ..domain.models import ChatMessage
 from .base import LLMError, LLMProvider, LLMResponse
 from .openrouter import clamp_max_tokens, is_openrouter
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -65,17 +68,23 @@ class OpenAICompatibleProvider(LLMProvider):
         try:
             response = await self._get_client().chat.completions.create(**kwargs)
         except openai.APIStatusError as exc:
+            logger.warning("%s HTTP %s for model %s at %s: %s", self.name, exc.status_code, model, self._base_url, exc.message)
             raise LLMError(f"{self.name} returned HTTP {exc.status_code} for model {model}: {exc.message}") from exc
         except openai.APIConnectionError as exc:
+            logger.warning("%s could not reach %s: %s", self.name, self._base_url, exc)
             raise LLMError(f"Could not reach {self.name} ({self._base_url}): {exc}") from exc
 
         if not response.choices:
             raise LLMError(f"{self.name} returned no choices for model {model}.")
         choice = response.choices[0]
         text = choice.message.content or ""
+        usage = response.usage
+        logger.debug(
+            "%s %s: %s in / %s out tokens, stop=%s, %d chars",
+            self.name, model, getattr(usage, "prompt_tokens", "?"), getattr(usage, "completion_tokens", "?"), choice.finish_reason, len(text),
+        )
         if not text.strip() and choice.finish_reason == "length":
             raise LLMError(f"{model} hit max_tokens={max_tokens} before producing any text (reasoning model?).")
-        usage = response.usage
         return LLMResponse(
             text=text,
             model=response.model or model,

@@ -214,6 +214,8 @@ class EndReason(StrEnum):
     MAX_TURNS = "max_turns"
     TARGET_ERROR = "target_error"
     ATTACKER_ERROR = "attacker_error"
+    # The evaluator kept returning empty messages mid-chat; what was said so far still gets graded.
+    ATTACKER_STALLED = "attacker_stalled"
     CANCELLED = "cancelled"
 
 

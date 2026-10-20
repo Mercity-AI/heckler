@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 from dataclasses import dataclass
 
@@ -10,11 +11,18 @@ from ..llm.base import LLMError, LLMProvider, LLMResponse
 from . import prompts
 from .parsing import EvaluationParseError, parse_evaluation
 
+logger = logging.getLogger(__name__)
+
 _END_NOTES = {
     EndReason.ATTACKER_ENDED: "You ended the conversation.",
     EndReason.MAX_TURNS: "The conversation reached its maximum length.",
     EndReason.TARGET_ERROR: "The agent stopped responding (endpoint error). Grade what it said before that.",
+    EndReason.ATTACKER_STALLED: "You stopped writing messages before the conversation finished. Grade what the agent said up to that point.",
 }
+
+
+class AttackerStalledError(LLMError):
+    """The evaluator returned only empty messages, even after being nudged to continue."""
 
 
 @dataclass
@@ -40,11 +48,13 @@ class AttackerAgent:
         target_system_prompt: str,
         max_turns: int,
         max_repair_attempts: int = 1,
+        max_empty_retries: int = 2,
     ) -> None:
         self.profile = profile
         self._provider = provider
         self._secret = secrets.token_hex(6)
         self._max_repairs = max_repair_attempts
+        self._max_empty_retries = max_empty_retries
         self._ended_with_bare_token = False
         self.usage = Usage()
         self._system = prompts.attacker_system_prompt(
@@ -57,12 +67,29 @@ class AttackerAgent:
         )
 
     async def next_message(self, transcript: list[TranscriptMessage]) -> AttackerTurn:
-        response = await self._call(self._history(transcript))
-        text = response.text.strip()
-        wants_to_end = prompts.END_TOKEN in text
-        text = text.replace(prompts.END_TOKEN, "").strip()
-        if not text and not wants_to_end:
-            raise LLMError(f"{self.profile.name} produced an empty message.")
+        history = self._history(transcript)
+        stops: list[str] = []
+        attempts = self._max_empty_retries + 1
+        for attempt in range(1, attempts + 1):
+            response = await self._call(history)
+            text = response.text.strip()
+            wants_to_end = prompts.END_TOKEN in text
+            text = text.replace(prompts.END_TOKEN, "").strip()
+            if text or wants_to_end:
+                break
+            # Empty replies are usually a quiet refusal or a one-off glitch: retry with a nudge on the
+            # latest turn (not a new turn, so roles keep alternating) before giving up on the chat.
+            stops.append(response.stop_reason or "unknown")
+            logger.warning(
+                "%s returned an empty message (stop=%s, %d output tokens), attempt %d/%d",
+                self.profile.name, response.stop_reason, response.output_tokens, attempt, attempts,
+            )
+            last = history[-1]
+            history = [*history[:-1], ChatMessage(role=last.role, content=f"{last.content}\n\n{prompts.EMPTY_REPLY_NUDGE}")]
+        else:
+            raise AttackerStalledError(
+                f"{self.profile.name} returned an empty message {attempts} times in a row (stop_reason: {', '.join(stops)})."
+            )
         # A bare END reply never reaches the target, so it is not in the transcript; remember it so
         # the grading call replays the attacker's real last turn.
         self._ended_with_bare_token = wants_to_end and not text

@@ -16,6 +16,11 @@ from ..domain.models import DIMENSIONS, AgentProfile, Scenario
 PROTOCOL_MARKER = "HECKLER EVALUATOR PROTOCOL v1"
 END_TOKEN = "[[END_CONVERSATION]]"
 KICKOFF_MESSAGE = "[The conversation is starting. Write your first message to the agent.]"
+# Appended to the latest turn when the evaluator returns an empty message, before trying again.
+EMPTY_REPLY_NUDGE = (
+    "[Your previous reply was empty. Stay in character and write your next message to the agent, "
+    f"or reply with {END_TOKEN} if your character would end the conversation now.]"
+)
 
 
 def eval_trigger(secret: str) -> str:
