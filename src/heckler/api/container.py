@@ -13,6 +13,7 @@ from ..llm.factory import ProviderRegistry
 from ..scenarios.base import ScenarioGenerator
 from ..scenarios.simula_generator import SimulaScenarioGenerator
 from ..storage.base import Repository
+from ..storage.encryption import build_cipher
 from ..storage.sqlite import SQLiteRepository
 from ..targets.factory import build_target_client
 from .clerk import ClerkVerifier, issuer_from_publishable_key
@@ -38,7 +39,7 @@ class Container:
         providers: ProviderRegistry | None = None,
         scenario_generator: ScenarioGenerator | None = None,
     ) -> "Container":
-        repository = repository or SQLiteRepository(settings.db_path)
+        repository = repository or SQLiteRepository(settings.db_path, build_cipher(settings))
         providers = providers or ProviderRegistry(settings)
         bus = EventBus()
         scenario_generator = scenario_generator or SimulaScenarioGenerator(output_root=settings.simula_dir)
