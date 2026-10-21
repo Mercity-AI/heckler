@@ -26,8 +26,8 @@ function AgentRow({ target, runs, index, onEdit }: { target: Target; runs: RunSu
 
   return (
     <motion.div layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.4, delay: index * 0.04, ease: [0.22, 1, 0.36, 1] }}>
-      <Card hover="glow" className="flex flex-wrap items-center gap-6 p-5">
-        <div className="min-w-[240px] flex-1">
+      <Card hover="glow" className="flex flex-wrap items-center gap-x-6 gap-y-4 p-4 sm:p-5">
+        <div className="min-w-[min(240px,100%)] flex-1">
           <div className="font-display text-[16px] font-semibold tracking-[-0.01em]">{target.name}</div>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-ink-2">
             <span className="inline-flex items-center gap-1.5 rounded-md bg-n-100 px-2 py-1">
@@ -72,8 +72,8 @@ export function AgentsPage() {
   const [editing, setEditing] = useState<Target | null>(null)
 
   return (
-    <div className="mx-auto w-full max-w-[1040px] px-8 pt-10 pb-16">
-      <div className="flex items-end justify-between gap-4">
+    <div className="mx-auto w-full max-w-[1040px] px-4 pt-6 pb-16 sm:px-8 sm:pt-10">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-[26px] font-semibold tracking-[-0.02em]">Agents</h1>
           <p className="mt-1 text-[13.5px] text-ink-3">Everything you’ve connected, each held to its own system prompt.</p>

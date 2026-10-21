@@ -115,9 +115,9 @@ function SheetBody({ c, targetName, maxTurns }: { c: LiveConversation; targetNam
   const s = c.scenario
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 md:grid-cols-[1.15fr_1fr]">
+    <div className="grid h-full min-h-0 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] md:grid-cols-[1.15fr_1fr] md:grid-rows-none">
       {/* transcript */}
-      <div ref={scroller} className="scrollbar-thin min-h-0 overflow-y-auto border-r border-line bg-surface px-6 py-5">
+      <div ref={scroller} className="scrollbar-thin min-h-0 overflow-y-auto border-b border-line bg-surface px-4 py-5 sm:px-6 md:border-r md:border-b-0">
         <div className="mb-4 flex items-center justify-between">
           <Eyebrow>Transcript</Eyebrow>
           <span className="text-[11.5px] text-ink-3">
@@ -181,7 +181,7 @@ function SheetBody({ c, targetName, maxTurns }: { c: LiveConversation; targetNam
             { value: 'scenario', label: 'Scenario' },
           ]}
         />
-        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-6 py-5">
+        <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
           {tab === 'report' &&
             (evaluation ? (
               <div className="flex flex-col gap-7">
@@ -380,14 +380,14 @@ export function ConversationSheet({
       title={c ? `${convLabel(c.index)}: ${c.scenario?.title ?? 'conversation'}` : 'Conversation'}
       header={
         c && (
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 text-[12px] text-ink-3">
                 <span className="font-mono font-medium text-ink-2">{convLabel(c.index)}</span>
                 <span>·</span>
-                <span>{targetName}</span>
+                <span className="truncate">{targetName}</span>
               </div>
-              <div className="mt-0.5 truncate font-display text-[17px] font-semibold tracking-[-0.01em]">{c.scenario?.title ?? c.summary?.scenario_title ?? '…'}</div>
+              <div className="mt-0.5 font-display text-[17px] max-sm:line-clamp-2 sm:truncate font-semibold tracking-[-0.01em]">{c.scenario?.title ?? c.summary?.scenario_title ?? '…'}</div>
             </div>
             {evaluation && (
               <div className="flex items-center gap-3 pr-8">

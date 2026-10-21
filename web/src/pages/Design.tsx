@@ -71,7 +71,7 @@ export function DesignPage() {
 
   if (targets.isSuccess && !target)
     return (
-      <div className="mx-auto max-w-[560px] px-8 pt-24">
+      <div className="mx-auto max-w-[560px] px-4 pt-16 sm:px-8 sm:pt-24">
         <Card>
           <EmptyState title="Agent not found" action={<Button onClick={() => navigate('/')}>Connect an agent</Button>} />
         </Card>
@@ -79,7 +79,7 @@ export function DesignPage() {
     )
 
   return (
-    <div className="mx-auto w-full max-w-[1080px] px-8 pt-8 pb-16">
+    <div className="mx-auto w-full max-w-[1080px] px-4 pt-5 pb-16 sm:px-8 sm:pt-8">
       <motion.div {...fadeUp(0)}>
         <Link to="/" className="inline-flex items-center gap-1 text-[12.5px] text-ink-3 transition-colors hover:text-ink">
           <ArrowLeft className="size-3.5" /> Connect
@@ -87,7 +87,7 @@ export function DesignPage() {
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>
             <Eyebrow>Design the test</Eyebrow>
-            <h1 className="mt-2 font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">{target ? target.name : <Skeleton className="h-8 w-56" />}</h1>
+            <h1 className="mt-2 font-display text-[24px] sm:text-[28px] leading-tight font-semibold tracking-[-0.02em]">{target ? target.name : <Skeleton className="h-8 w-56" />}</h1>
           </div>
           {target && (
             <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
@@ -99,8 +99,8 @@ export function DesignPage() {
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_320px]">
         <motion.div {...fadeUp(1)}>
-          <Card className="flex flex-col gap-6 p-6">
-            <div className="flex items-center justify-between gap-4">
+          <Card className="flex flex-col gap-6 p-4 sm:p-6">
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center sm:gap-4">
               <div>
                 <div className="font-display text-[14px] font-semibold text-ink">Scenarios</div>
                 <div className="text-[12.5px] text-ink-3">Generate a fresh set, or replay an earlier run to measure a prompt change.</div>

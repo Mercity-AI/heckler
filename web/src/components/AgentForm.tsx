@@ -187,7 +187,7 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
   return (
     <form onSubmit={submit} className="flex flex-col">
       {/* 1. the agent under test */}
-      <div className="flex flex-col gap-5 p-6">
+      <div className="flex flex-col gap-5 p-4 sm:p-6">
         <SectionHead n={1} title="Your agent" sub="The agent you want to evaluate, and the system prompt it ships with. Every rule in the prompt becomes something we test." />
         {!initial && (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -216,9 +216,9 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
             onChange={setKind}
             className="w-full"
             options={[
-              { value: 'openai_chat', label: <><Cloud className="size-3.5" /> OpenAI-compatible</> },
-              { value: 'http', label: <><Globe className="size-3.5" /> Custom HTTP</> },
-              { value: 'fake', label: <><FlaskConical className="size-3.5" /> Offline demo</> },
+              { value: 'openai_chat', label: <><Cloud className="hidden size-3.5 sm:block" /> OpenAI-compatible</> },
+              { value: 'http', label: <><Globe className="hidden size-3.5 sm:block" /> Custom HTTP</> },
+              { value: 'fake', label: <><FlaskConical className="hidden size-3.5 sm:block" /> <span className="sm:hidden">Demo</span><span className="hidden sm:inline">Offline demo</span></> },
             ]}
           />
           <AnimatePresence mode="wait" initial={false}>
@@ -290,7 +290,7 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
                 </>
               )}
               {kind === 'fake' && (
-                <div className="flex items-center justify-between gap-4 rounded-xl bg-n-50 px-4 py-3">
+                <div className="flex flex-col items-start justify-between gap-3 rounded-xl bg-n-50 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
                   <p className="text-[13px] leading-relaxed text-ink-2">A scripted agent and scripted evaluators that run entirely offline. No keys, no cost: a quick way to see how Heckler works.</p>
                   <Segmented id="behavior" value={behavior} onChange={setBehavior} options={[{ value: 'leaky', label: 'Leaky' }, { value: 'compliant', label: 'Compliant' }]} />
                 </div>
@@ -304,7 +304,7 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
       <AnimatePresence initial={false}>
         {needsEvaluator && (
           <motion.div {...collapse} className="overflow-hidden">
-            <div className="flex flex-col gap-5 border-t border-line bg-n-50/50 p-6">
+            <div className="flex flex-col gap-5 border-t border-line bg-n-50/50 p-4 sm:p-6">
               <SectionHead
                 n={2}
                 title="Evaluator model"
@@ -330,7 +330,7 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
       </AnimatePresence>
 
       {/* footer: test, then save */}
-      <div className="flex flex-col gap-3 border-t border-line px-6 py-4">
+      <div className="flex flex-col gap-3 border-t border-line px-4 py-4 sm:px-6">
         <AnimatePresence initial={false}>
           {test && (
             <motion.div {...collapse} className="overflow-hidden">

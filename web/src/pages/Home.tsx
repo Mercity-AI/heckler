@@ -51,11 +51,11 @@ export function HomePage() {
   const saved = targets.data ?? []
 
   return (
-    <div className="mx-auto w-full max-w-[860px] px-8 pt-8 pb-20">
+    <div className="mx-auto w-full max-w-[860px] px-4 pt-5 pb-20 sm:px-8 sm:pt-8">
       <motion.div {...fadeUp(0)} className="relative isolate overflow-hidden rounded-3xl border border-line">
         <Backdrop seed={8812} palette="light" className="-z-10" />
-        <div className="px-10 py-10">
-          <h1 className="max-w-[20ch] font-serif text-[44px] leading-[1.04] font-[380] tracking-[-0.02em] text-ink">
+        <div className="px-6 py-8 sm:px-10 sm:py-10">
+          <h1 className="max-w-[20ch] font-serif text-[34px] sm:text-[44px] leading-[1.04] font-[380] tracking-[-0.02em] text-ink">
             See how your agent behaves <em className="font-[420] text-indigo-600">before</em> your users do.
           </h1>
           <p className="mt-4 max-w-[68ch] text-[14.5px] leading-relaxed text-pretty text-ink-2">
@@ -71,7 +71,7 @@ export function HomePage() {
         </div>
         <ol className="grid border-t border-white/60 bg-white/35 backdrop-blur-sm sm:grid-cols-3">
           {HOW_IT_WORKS.map((step, i) => (
-            <li key={step.title} className={cn('px-10 py-5 sm:px-6 sm:first:pl-10 sm:last:pr-10', i > 0 && 'border-t border-white/60 sm:border-t-0 sm:border-l')}>
+            <li key={step.title} className={cn('px-6 py-5 sm:px-6 sm:first:pl-10 sm:last:pr-10', i > 0 && 'border-t border-white/60 sm:border-t-0 sm:border-l')}>
               <span className="font-mono text-[10.5px] font-medium tracking-[0.08em] text-indigo-700/70">0{i + 1}</span>
               <div className="mt-1.5 font-display text-[14px] font-semibold tracking-[-0.01em] text-ink">{step.title}</div>
               <p className="mt-1 text-[12.5px] leading-relaxed text-pretty text-ink-3">{step.body}</p>
@@ -97,7 +97,7 @@ export function HomePage() {
 
       <motion.div {...fadeUp(2)} className="mt-6">
         <Card className="overflow-hidden">
-          <div className="border-b border-line px-6 py-4">
+          <div className="border-b border-line px-4 py-4 sm:px-6">
             <h2 className="font-display text-[18px] font-semibold tracking-[-0.015em]">Connect your agent</h2>
             <p className="mt-0.5 text-[13px] text-ink-3">Two connections: the agent you’re testing, and the model that tests it.</p>
           </div>

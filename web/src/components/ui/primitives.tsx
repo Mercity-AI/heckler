@@ -180,7 +180,7 @@ export function Segmented<T extends string>({
             role="radio"
             aria-checked={active}
             onClick={() => onChange(o.value)}
-            className={cn('relative flex h-7 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-[12.5px] font-medium transition-colors', active ? 'text-ink' : 'text-ink-3 hover:text-ink-2')}
+            className={cn('relative flex h-7 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-[12.5px] sm:px-3 font-medium transition-colors', active ? 'text-ink' : 'text-ink-3 hover:text-ink-2')}
           >
             {active && (
               <motion.span

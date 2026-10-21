@@ -62,7 +62,7 @@ function RunRow({ run, selected, onToggle, onOpen, onDelete }: { run: RunSummary
               onDelete()
             }}
             aria-label={`Delete run ${run.id}`}
-            className="grid size-8 place-items-center rounded-lg text-ink-3 opacity-0 transition-[opacity,background-color,color] duration-200 group-hover:opacity-100 hover:bg-fail-soft hover:text-fail focus-visible:opacity-100"
+            className="grid size-8 place-items-center rounded-lg text-ink-3 opacity-0 transition-[opacity,background-color,color] duration-200 group-hover:opacity-100 [@media(hover:none)]:opacity-100 hover:bg-fail-soft hover:text-fail focus-visible:opacity-100"
           >
             <Trash2 className="size-3.5" />
           </button>
@@ -123,8 +123,8 @@ export function RunsPage() {
   const pendingActive = pending.filter((r) => isActive(r.status)).length
 
   return (
-    <div className="mx-auto w-full max-w-[1100px] px-8 pt-10 pb-16">
-      <div className="flex items-end justify-between gap-4">
+    <div className="mx-auto w-full max-w-[1100px] px-4 pt-6 pb-16 sm:px-8 sm:pt-10">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-[26px] font-semibold tracking-[-0.02em]">Runs</h1>
           <p className="mt-1 text-[13.5px] text-ink-3">Every evaluation you’ve started, newest first.</p>
@@ -155,7 +155,7 @@ export function RunsPage() {
           </EmptyState>
         ) : (
           <>
-            <div className="flex h-14 items-center gap-3 px-5">
+            <div className="flex h-14 items-center gap-3 px-4 sm:px-5">
               <div className="relative w-full max-w-[280px]">
                 <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-ink-3" />
                 <input
@@ -178,7 +178,7 @@ export function RunsPage() {
                       </Button>
                     </motion.div>
                   ) : (
-                    <motion.span key="count" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="text-[12.5px] text-ink-3 tabular">
+                    <motion.span key="count" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="text-[12.5px] whitespace-nowrap text-ink-3 tabular">
                       {query ? `${visible.length} of ${plural(all.length, 'run')}` : plural(all.length, 'run')}
                     </motion.span>
                   )}
@@ -189,40 +189,42 @@ export function RunsPage() {
             {visible.length === 0 ? (
               <p className="border-t border-line px-5 py-10 text-center text-[13px] text-ink-3">No runs match “{query}”.</p>
             ) : (
-              <table className="w-full table-auto border-collapse text-left">
-                <thead>
-                  <tr className="border-t border-line bg-n-50/70">
-                    <th className="w-11 py-2.5 pr-1 pl-5">
-                      <Checkbox
-                        checked={allChosen}
-                        indeterminate={chosen.length > 0 && !allChosen}
-                        onChange={() => setSelected(allChosen ? new Set() : new Set(visible.map((r) => r.id)))}
-                        label="Select all runs"
-                      />
-                    </th>
-                    {COLUMNS.map((c) => (
-                      <th key={c} className="py-2.5 pr-4 font-mono text-[10.5px] font-medium tracking-[0.08em] text-ink-3 uppercase">
-                        {c}
+              <div className="scrollbar-thin overflow-x-auto">
+                <table className="w-full table-auto border-collapse text-left">
+                  <thead>
+                    <tr className="border-t border-line bg-n-50/70">
+                      <th className="w-11 py-2.5 pr-1 pl-5">
+                        <Checkbox
+                          checked={allChosen}
+                          indeterminate={chosen.length > 0 && !allChosen}
+                          onChange={() => setSelected(allChosen ? new Set() : new Set(visible.map((r) => r.id)))}
+                          label="Select all runs"
+                        />
                       </th>
-                    ))}
-                    <th className="w-12" />
-                  </tr>
-                </thead>
-                <tbody>
-                  <AnimatePresence initial={false}>
-                    {visible.map((run) => (
-                      <RunRow
-                        key={run.id}
-                        run={run}
-                        selected={selected.has(run.id)}
-                        onToggle={() => toggle(run.id)}
-                        onOpen={() => navigate(`/runs/${run.id}`)}
-                        onDelete={() => askDelete([run])}
-                      />
-                    ))}
-                  </AnimatePresence>
-                </tbody>
-              </table>
+                      {COLUMNS.map((c) => (
+                        <th key={c} className="py-2.5 pr-4 font-mono text-[10.5px] font-medium tracking-[0.08em] text-ink-3 uppercase">
+                          {c}
+                        </th>
+                      ))}
+                      <th className="w-12" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <AnimatePresence initial={false}>
+                      {visible.map((run) => (
+                        <RunRow
+                          key={run.id}
+                          run={run}
+                          selected={selected.has(run.id)}
+                          onToggle={() => toggle(run.id)}
+                          onOpen={() => navigate(`/runs/${run.id}`)}
+                          onDelete={() => askDelete([run])}
+                        />
+                      ))}
+                    </AnimatePresence>
+                  </tbody>
+                </table>
+              </div>
             )}
           </>
         )}

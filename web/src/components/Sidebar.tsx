@@ -1,5 +1,5 @@
 import { UserButton } from '@clerk/react'
-import { Bot, History, PanelLeftClose, PanelLeftOpen, Plus, Search } from 'lucide-react'
+import { Bot, History, PanelLeftClose, PanelLeftOpen, Plus, Search, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
@@ -90,7 +90,11 @@ function Reveal({ show, children, className }: { show: boolean; children: ReactN
   )
 }
 
-export function Sidebar() {
+/**
+ * The app's navigation. On desktop it's a collapsible column; as the phone `drawer` it's always
+ * expanded and the collapse toggle becomes a close button.
+ */
+export function Sidebar({ drawer = false, onClose }: { drawer?: boolean; onClose?: () => void }) {
   const runs = useRuns()
   const health = useHealth()
   const location = useLocation()
@@ -99,15 +103,17 @@ export function Sidebar() {
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
   useEffect(() => {
+    if (drawer) return
     try {
       localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0')
     } catch {
       /* storage unavailable: the choice just won't persist */
     }
-  }, [collapsed])
+  }, [collapsed, drawer])
 
   // "[" toggles the sidebar
   useEffect(() => {
+    if (drawer) return
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement
       if (e.key !== '[' || e.metaKey || e.ctrlKey || el.closest('input,textarea,select,[contenteditable],[role=dialog]')) return
@@ -116,7 +122,7 @@ export function Sidebar() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [drawer])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -127,14 +133,16 @@ export function Sidebar() {
   const onAgents = location.pathname.startsWith('/agents')
   const onRuns = location.pathname === '/runs'
   const activeRunId = location.pathname.match(/^\/runs\/([^/]+)/)?.[1]
-  const open = !collapsed
+  const open = drawer || !collapsed
 
   return (
     <motion.aside
       initial={false}
-      animate={{ width: open ? OPEN_W : CLOSED_W }}
+      animate={drawer ? undefined : { width: open ? OPEN_W : CLOSED_W }}
       transition={{ duration: 0.35, ease: EASE }}
-      className="flex h-full shrink-0 flex-col overflow-hidden border-r border-line bg-n-50/70"
+      className={cn('flex h-full shrink-0 flex-col overflow-hidden', drawer ? 'w-full' : 'border-r border-line bg-n-50/70')}
+      // in the drawer, any link closes it, even one to the page you're already on
+      onClickCapture={drawer ? (e) => (e.target as HTMLElement).closest('a') && onClose?.() : undefined}
     >
       <div className={cn('flex items-center pt-4 pb-4', open ? 'gap-2.5 px-4' : 'flex-col gap-2 px-0')}>
         <Link to="/" aria-label="Heckler home" className={cn('flex min-w-0 items-center gap-2.5', open ? 'flex-1' : 'size-9 justify-center')}>
@@ -143,6 +151,11 @@ export function Sidebar() {
             <HecklerWordmark />
           </Reveal>
         </Link>
+        {drawer ? (
+          <button onClick={onClose} aria-label="Close menu" className="grid size-9 shrink-0 place-items-center rounded-[10px] text-ink-3 transition-colors hover:bg-n-100 hover:text-ink">
+            <X className="size-4" />
+          </button>
+        ) : (
         <Tooltip content={<span>{open ? 'Collapse' : 'Expand'} sidebar <Kbd>[</Kbd></span>} side="right">
           <button
             onClick={() => setCollapsed((c) => !c)}
@@ -152,12 +165,16 @@ export function Sidebar() {
             {open ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
           </button>
         </Tooltip>
+        )}
       </div>
 
       <div className={cn('flex flex-col', open ? 'gap-1 px-3' : 'items-center gap-2')}>
         <Tooltip content={open ? null : <span>New evaluation <Kbd>N</Kbd></span>} side="right">
           <button
-            onClick={() => navigate('/')}
+            onClick={() => {
+              navigate('/')
+              onClose?.()
+            }}
             className={cn(
               'group inline-flex h-9 items-center gap-2 rounded-[10px] bg-ink font-display text-[13.5px] font-medium text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.12),0_1px_2px_rgb(22_22_29/0.3)] transition-[background-color,transform] duration-200 hover:bg-n-800 active:scale-[0.98]',
               open ? 'w-full px-3.5' : 'w-9 shrink-0 justify-center',
