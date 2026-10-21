@@ -132,7 +132,7 @@ export function RunViewPage() {
 
   if (run.isError && !stream.status) {
     return (
-      <div className="mx-auto max-w-[640px] px-8 pt-24">
+      <div className="mx-auto max-w-[640px] px-4 pt-16 sm:px-8 sm:pt-24">
         <Card>
           <EmptyState icon={<AlertTriangle className="size-5" />} title="Run not found" action={<Button onClick={() => navigate('/')}>Start a new evaluation</Button>}>
             {(run.error as Error).message}
@@ -147,7 +147,7 @@ export function RunViewPage() {
       {/* header */}
       <div className="relative isolate overflow-hidden border-b border-line">
         <ShaderField energy={energy} heat={heat} className="-z-10" />
-        <div className="mx-auto max-w-[1440px] px-8 pt-5 pb-6">
+        <div className="mx-auto max-w-[1440px] px-4 pt-4 pb-6 sm:px-8 sm:pt-5">
           <div className="flex items-center gap-1.5 text-[12.5px] text-ink-3">
             {detail?.example ? (
               <span>Example run · not saved to your runs</span>
@@ -165,7 +165,7 @@ export function RunViewPage() {
           <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-3">
-                <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">{detail ? detail.target_name : <Skeleton className="h-8 w-56" />}</h1>
+                <h1 className="font-display text-[24px] leading-tight sm:text-[28px] font-semibold tracking-[-0.02em]">{detail ? detail.target_name : <Skeleton className="h-8 w-56" />}</h1>
                 {status && <RunStatusPill status={status} />}
                 <AnimatePresence>
                   {stream.connection === 'reconnecting' && (
@@ -235,7 +235,7 @@ export function RunViewPage() {
       </div>
 
       {/* body */}
-      <div className="mx-auto max-w-[1440px] px-8 pt-5 pb-16">
+      <div className="mx-auto max-w-[1440px] px-4 pt-5 pb-16 sm:px-8">
         {status === 'failed' && (stream.error || detail?.error) && (
           <div className="mb-5 flex gap-3 rounded-xl border border-fail/25 bg-fail-soft px-4 py-3 text-[13px]">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-fail" />
@@ -250,7 +250,7 @@ export function RunViewPage() {
           <SimulaPanel status={status} calls={stream.calls} numScenarios={detail?.config.num_scenarios} startedAt={detail?.started_at ?? detail?.created_at} />
         ) : conversations.length === 0 ? (
           stream.connection === 'connecting' || run.isPending ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(380px,1fr))] gap-4">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(380px,100%),1fr))] gap-4">
               {[0, 1, 2].map((i) => (
                 <Skeleton key={i} className="h-[620px] rounded-2xl" />
               ))}
@@ -299,7 +299,7 @@ export function RunViewPage() {
               <motion.div key={tab} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}>
                 {tab === 'live' &&
                   (visible.length ? (
-                    <motion.div layout className="grid grid-cols-[repeat(auto-fill,minmax(380px,1fr))] gap-4">
+                    <motion.div layout className="grid grid-cols-[repeat(auto-fill,minmax(min(380px,100%),1fr))] gap-4">
                       <AnimatePresence mode="popLayout">
                         {visible.map((c) => (
                           <ConversationCard key={c.id} c={c} targetName={targetName} maxTurns={maxTurns} onOpen={openConversation} />

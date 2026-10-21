@@ -50,13 +50,13 @@ export function Dialog({
             <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4 sm:p-8">
               <RadixDialog.Content asChild forceMount>
                 <motion.div
-                  className={cn('relative flex max-h-[min(860px,calc(100vh-4rem))] w-full max-w-[640px] flex-col rounded-2xl border border-line bg-surface shadow-pop outline-none', className)}
+                  className={cn('relative flex max-h-[min(860px,calc(100dvh-2rem))] sm:max-h-[min(860px,calc(100dvh-4rem))] w-full max-w-[640px] flex-col rounded-2xl border border-line bg-surface shadow-pop outline-none', className)}
                   initial={{ opacity: 0, y: 12, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.98 }}
                   transition={{ duration: 0.32, ease: EASE }}
                 >
-                  <div className="flex items-start justify-between gap-4 border-b border-line px-6 pt-5 pb-4">
+                  <div className="flex items-start justify-between gap-4 border-b border-line px-4 pt-5 pb-4 sm:px-6">
                     <div>
                       <RadixDialog.Title className="font-display text-[17px] font-semibold tracking-[-0.01em] text-ink">{title}</RadixDialog.Title>
                       {description ? (
@@ -71,6 +71,35 @@ export function Dialog({
                   </div>
                   <div className={cn('scrollbar-thin min-h-0 flex-1 overflow-y-auto px-6 py-5', bodyClassName)}>{children}</div>
                   {footer && <div className="flex items-center justify-end gap-2 border-t border-line bg-n-50/60 px-6 py-3.5 rounded-b-2xl">{footer}</div>}
+                </motion.div>
+              </RadixDialog.Content>
+            </div>
+          </RadixDialog.Portal>
+        )}
+      </AnimatePresence>
+    </RadixDialog.Root>
+  )
+}
+
+/** Left-hand navigation drawer for phone widths; never shown from `md` up. */
+export function Drawer({ open, onOpenChange, title, children }: { open: boolean; onOpenChange: (open: boolean) => void; title: string; children: ReactNode }) {
+  return (
+    <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
+      <AnimatePresence>
+        {open && (
+          <RadixDialog.Portal forceMount>
+            <div className="md:hidden">
+              <Overlay />
+              <RadixDialog.Content asChild forceMount aria-describedby={undefined}>
+                <motion.div
+                  className="fixed inset-y-0 left-0 z-50 flex w-[min(300px,86vw)] flex-col border-r border-line bg-n-50 shadow-pop outline-none"
+                  initial={{ x: '-100%' }}
+                  animate={{ x: 0 }}
+                  exit={{ x: '-100%' }}
+                  transition={{ duration: 0.3, ease: EASE }}
+                >
+                  <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
+                  {children}
                 </motion.div>
               </RadixDialog.Content>
             </div>
@@ -118,7 +147,7 @@ export function Sheet({
                 transition={{ duration: 0.38, ease: EASE }}
               >
                 <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
-                <div className="flex items-start gap-4 border-b border-line bg-surface px-6 py-4">
+                <div className="flex items-start gap-4 border-b border-line bg-surface px-4 py-4 sm:px-6">
                   <div className="min-w-0 flex-1">{header}</div>
                   <RadixDialog.Close className="-mr-2 grid size-8 shrink-0 place-items-center rounded-lg text-ink-3 transition-colors hover:bg-n-100 hover:text-ink" aria-label="Close">
                     <X className="size-4" />
