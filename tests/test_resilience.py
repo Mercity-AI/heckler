@@ -81,7 +81,7 @@ async def test_complete_json_retries_once_with_the_parse_error():
     assert "could not be parsed as JSON" in retry[2].content
 
 
-async def test_complete_json_error_quotes_the_bad_reply():
+async def test_complete_json_error_describes_the_bad_reply_without_quoting_it():
     router, seen = _router(lambda _n, _m: "Sorry, I can't produce that structure right now.")
     with pytest.raises(SimulaJSONError) as info:
         await router.complete_json("bulk", "make prompts", SYSTEM_JSON, task="meta_prompt")
@@ -89,7 +89,7 @@ async def test_complete_json_error_quotes_the_bad_reply():
     assert len(seen) == 2
     assert "meta_prompt step (fake-simula) returned invalid JSON twice" in message
     assert "stop_reason=end_turn" in message and "/8192" in message
-    assert "Sorry, I can't produce that structure" in message
+    assert "Sorry" not in message and "48 chars" in message  # the reply itself never reaches the log
 
 
 # --------------------------------------------------------------------------------- empty evaluator turns

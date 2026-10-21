@@ -62,15 +62,31 @@ All settings come from environment variables or `.env` (see `.env.example`), pre
 
 | Setting | Default | Meaning |
 |---|---|---|
+| `HECKLER_ENCRYPTION_KEY` | – | encrypts stored agents, runs and conversations (see [Encryption at rest](#encryption-at-rest)); **required when sign-in is on** |
 | `HECKLER_EXAMPLE_RUN_ID` | – | run shown by the UI's "See an example" button (unset: an offline demo runs) |
 | `HECKLER_CLERK_PUBLISHABLE_KEY` | – | turns on sign-in (see [Auth](#auth)); unset: one local user, no sign-in |
 | `HECKLER_CLERK_AUTHORIZED_PARTIES` | – | comma-separated web origins allowed to use a session token, e.g. `http://localhost:5173` |
 | `HECKLER_SUGGESTED_EVALUATOR_BASE_URL` | `https://openrouter.ai/api/v1` | prefilled in the agent form's evaluator section |
 | `HECKLER_SUGGESTED_EVALUATOR_MODEL` | `anthropic/claude-opus-5.5` | prefilled evaluator model |
 | `HECKLER_SUGGESTED_SCENARIO_MODEL` | `google/gemini-3.8-flash` | prefilled Simula model |
-| `HECKLER_DATA_DIR` | `data` | SQLite DB and Simula artifacts |
+| `HECKLER_DATA_DIR` | `data` | SQLite DB and Simula's temporary working files |
 | `HECKLER_MAX_TURNS_LIMIT` / `HECKLER_MAX_CONCURRENCY` / `HECKLER_MAX_SCENARIOS` | `20` / `100` / `100` | request guard rails |
 | `HECKLER_CORS_ORIGINS` | `*` | comma-separated, for the frontend |
+
+### Encryption at rest
+
+Everything a user gives us or a run produces (agent API keys, evaluator keys, system prompts, scenarios, transcripts, grades) is stored encrypted with Fernet (AES + HMAC) under `HECKLER_ENCRYPTION_KEY`. Only ids, owner ids, run status, the example flag and timestamps stay readable, so listings still work. A copy of the database or a backup is useless without the key.
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+- Keep the key only in the server's environment or secret manager, never in `data/` next to the database, and keep a backup copy somewhere safe: **lose it and the stored data is gone.**
+- With sign-in on, the server refuses to start without a key. With sign-in off (local dev) and no key, data is stored unencrypted and a warning is logged.
+- Starting with a key encrypts any existing plaintext rows, then `VACUUM`s the file so no old plaintext survives on disk.
+- Rotate by setting `HECKLER_ENCRYPTION_KEY=new_key,old_key` and restarting once (everything is re-encrypted under `new_key`), then drop `old_key`.
+- Simula's working files (which contain the system prompt) are deleted as soon as a run ends; the logs record ids, counts and timings, never prompts, replies or keys.
+- The server still has to use the plaintext while a run is in progress (it calls the models with the user's key and prompt). Encryption protects what is stored, not a compromised running server.
 
 ### Auth
 

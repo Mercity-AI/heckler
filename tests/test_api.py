@@ -6,6 +6,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from heckler.api.app import create_app
 from heckler.domain.models import ModelSpec
@@ -178,7 +179,7 @@ def test_delete_run(client, settings):
     run_id = client.post("/runs", json={"target_id": target_id, "num_scenarios": 2, "max_turns": 2}).json()["id"]
     _read_sse(client, run_id)
     conversation_id = client.get(f"/runs/{run_id}").json()["conversations"][0]["id"]
-    assert (settings.simula_dir / run_id).exists()
+    assert not (settings.simula_dir / run_id).exists()  # Simula working files are removed once the run ends
 
     assert client.delete(f"/runs/{run_id}").status_code == 204
     assert client.get(f"/runs/{run_id}").status_code == 404
@@ -282,3 +283,20 @@ def test_server_keys_are_never_used(client, monkeypatch):
     run_id = client.post("/runs", json={"target_id": demo, "num_scenarios": 1, "max_turns": 2}).json()["id"]
     _read_sse(client, run_id)
     assert client.get(f"/runs/{run_id}").json()["status"] == "completed"
+
+
+def test_full_run_is_stored_encrypted(settings):
+    from cryptography.fernet import Fernet
+
+    settings = settings.model_copy(update={"encryption_key": SecretStr(Fernet.generate_key().decode())})
+    with TestClient(create_app(settings)) as client:
+        target_id = _create_target(client)
+        run_id = client.post("/runs", json={"target_id": target_id, "num_scenarios": 2, "max_turns": 2}).json()["id"]
+        _read_sse(client, run_id)
+        run = client.get(f"/runs/{run_id}").json()
+        conversation = client.get(f"/runs/{run_id}/conversations/{run['conversations'][0]['id']}").json()
+        assert run["status"] == "completed" and conversation["messages"]
+        assert client.get(f"/targets/{target_id}").json()["system_prompt"] == SUPPORT_PROMPT
+    on_disk = b"".join(p.read_bytes() for p in settings.db_path.parent.glob(settings.db_path.name + "*"))
+    assert b"ShopFast" not in on_disk and b"Refunds are only allowed" not in on_disk
+    assert not settings.simula_dir.exists() or not any(settings.simula_dir.iterdir())

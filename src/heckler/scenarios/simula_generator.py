@@ -111,12 +111,12 @@ def _json_retry_request(error: str, truncated: bool) -> str:
 
 
 def _describe_bad_reply(task: str, model: str, response: LLMResponse, error: str, max_tokens: int) -> str:
+    # Shape only, never the reply itself: this message lands in the server log.
     text = response.text.strip()
-    head, tail = text[:300], text[-200:] if len(text) > 500 else ""
-    shape = f"reply starts {head!r}" + (f" … ends {tail!r}" if tail else "") if text else "the reply was empty"
     return (
         f"{task} step ({model}) returned invalid JSON twice: {error}. "
-        f"stop_reason={response.stop_reason}, output_tokens={response.output_tokens}/{max_tokens}, {len(text):,} chars; {shape}"
+        f"stop_reason={response.stop_reason}, output_tokens={response.output_tokens}/{max_tokens}, "
+        + (f"{len(text):,} chars" if text else "the reply was empty")
     )
 
 SCENARIO_SCHEMA: dict[str, Any] = {
@@ -237,8 +237,8 @@ class _ProviderRouter(ModelRouter):
             error = str(exc)
         truncated = response.stop_reason in _TRUNCATED
         logger.warning(
-            "simula %s (%s) returned invalid JSON, retrying once: %s (stop=%s, %d/%d output tokens); reply starts %r",
-            task, spec.model, error, response.stop_reason, response.output_tokens, spec.max_tokens, response.text.strip()[:200],
+            "simula %s (%s) returned invalid JSON, retrying once: %s (stop=%s, %d/%d output tokens, %d chars)",
+            task, spec.model, error, response.stop_reason, response.output_tokens, spec.max_tokens, len(response.text.strip()),
         )
         messages += [
             ChatMessage(role="assistant", content=response.text.strip() or "(empty reply)"),
@@ -334,7 +334,7 @@ class SimulaScenarioGenerator(ScenarioGenerator):
 
         router = _ProviderRouter(cfg.data, roles, on_call)
         started = time.perf_counter()
-        logger.info("simula %s: generating %d scenarios for %r with %s", workdir_name, count, target.name, sorted({spec.model for _, spec in roles.values()}))
+        logger.info("simula %s: generating %d scenarios for agent %s with %s", workdir_name, count, target.id, sorted({spec.model for _, spec in roles.values()}))
         try:
             rows = await generate_dataset(cfg, router, resume=False, quiet=True)
         except SystemExit as exc:  # Simula's stop/review gates; never configured here, but never let one kill the server

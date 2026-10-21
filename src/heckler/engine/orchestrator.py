@@ -162,7 +162,10 @@ class RunOrchestrator:
         await asyncio.to_thread(shutil.rmtree, self._settings.simula_dir / run_id, True)
 
     async def recover_interrupted_runs(self) -> int:
-        """Runs left non-terminal by a previous process can never finish; mark them failed."""
+        """Runs left non-terminal by a previous process can never finish; mark them failed.
+
+        Also removes Simula working files those runs left behind (plaintext, like any in-flight generation)."""
+        await asyncio.to_thread(shutil.rmtree, self._settings.simula_dir, True)
         count = 0
         for run in await self._repo.list_runs(limit=1000, example=None):
             if not run.status.is_terminal and run.id not in self._tasks:
@@ -187,8 +190,8 @@ class RunOrchestrator:
         try:
             run.started_at = utcnow()
             logger.info(
-                "run %s started: agent %r, target %s, evaluator %s, %d scenarios x %d turns",
-                run.id, target.name, getattr(target.connection, "model", target.connection.kind), models.attacker.model,
+                "run %s started: agent %s, target %s, evaluator %s, %d scenarios x %d turns",
+                run.id, target.id,getattr(target.connection, "model", target.connection.kind), models.attacker.model,
                 run.config.num_scenarios, run.config.max_turns,
             )
             # Built first so a misconfigured target fails before we spend money on scenarios.
@@ -232,6 +235,8 @@ class RunOrchestrator:
             if target_client is not None:
                 await target_client.aclose()
             await models.aclose()
+            # Simula's working files hold the system prompt and scenarios in plaintext; the encrypted DB has what we keep.
+            await asyncio.to_thread(shutil.rmtree, self._settings.simula_dir / run.id, True)
             s = run.stats
             logger.info(
                 "run %s finished: %s; %d/%d evaluated, %d passed, %d failed, %d broken, %d errored, mean score %s, "

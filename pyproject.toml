@@ -17,6 +17,8 @@ dependencies = [
   "openai>=1.50",
   # Verifies Clerk session tokens (RS256 via JWKS).
   "pyjwt[crypto]>=2.9",
+  # Encrypts stored user data at rest (storage.encryption).
+  "cryptography>=42",
   # Scenario taxonomy + generation. Pinned to a commit: Simula is pre-1.0 and not on PyPI.
   "simula @ git+https://github.com/Mercity-AI/Simula.git@c27f83b930422dc04b936a883d4cc83b299c29f9",
 ]

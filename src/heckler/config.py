@@ -11,6 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +20,10 @@ class Settings(BaseSettings):
 
     # --- storage ---
     data_dir: Path = Path("data")
+    # Encrypts every stored agent, run and conversation (see storage.encryption). Required when sign-in is on.
+    # Comma-separated to rotate: the first key encrypts, all of them decrypt. Keep a copy somewhere safe:
+    # without it, the stored data cannot be read back.
+    encryption_key: SecretStr | None = None
 
     # --- prefills for the agent form's evaluator section (the user's own key always pays) ---
     suggested_evaluator_base_url: str = "https://openrouter.ai/api/v1"
