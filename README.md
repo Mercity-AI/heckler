@@ -31,8 +31,6 @@ Register your agent (an endpoint plus its system prompt) and an evaluator model 
 
 It isn't tied to one domain. Whatever the system prompt describes (support bot, tutor, travel agent, internal copilot) becomes the attack surface.
 
-> [!IMPORTANT]
-> Heckler is strictly **bring-your-own-key**. The server holds no LLM provider keys, and every model call in a run is paid for by the key saved on the agent. There is no server-side fallback.
 
 ## How it works
 
