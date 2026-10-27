@@ -1,16 +1,16 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowRight, Pencil, Repeat, Sparkles } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Pencil, Repeat, ShieldCheck, Sparkles } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { evaluatorLabel } from '../lib/agentMeta'
 import { AgentDialog } from '../components/AgentDialog'
 import { Button } from '../components/ui/button'
-import { Card, Chip, EmptyState, Eyebrow, Input, Kbd, Segmented, Skeleton } from '../components/ui/primitives'
+import { Card, Checkbox, Chip, EmptyState, Eyebrow, Input, Kbd, Segmented, Skeleton } from '../components/ui/primitives'
 import { SliderField } from '../components/ui/slider'
 import { api } from '../lib/api'
 import { FOCUS_SUGGESTIONS } from '../lib/examples'
-import { cn, relativeTime } from '../lib/format'
+import { cn, relativeTime, shortModel } from '../lib/format'
 import { keys, useConfig, useRuns, useTargets } from '../lib/queries'
 
 const fadeUp = (i: number) => ({
@@ -34,6 +34,8 @@ export function DesignPage() {
   const [source, setSource] = useState<'simula' | 'replay'>(params.get('replay') ? 'replay' : 'simula')
   const [pickedReplay, setReplayId] = useState<string | null>(params.get('replay'))
   const [editing, setEditing] = useState(false)
+  // guard ids switched off for this run; every guard screens by default
+  const [skipGuards, setSkipGuards] = useState<string[]>([])
 
   const target = targets.data?.find((t) => t.id === targetId) ?? null
   const maxTurns = pickedTurns ?? config.data?.defaults.max_turns ?? 6
@@ -41,6 +43,8 @@ export function DesignPage() {
   const replayable = useMemo(() => (runs.data ?? []).filter((r) => r.target_id === targetId && r.total > 0), [runs.data, targetId])
   const replayRun = replayable.find((r) => r.id === pickedReplay) ?? replayable[0] ?? null
   const effectiveScenarios = source === 'replay' && replayRun ? replayRun.total : numScenarios
+  const guards = target?.guards ?? []
+  const activeGuards = guards.filter((g) => !skipGuards.includes(g.id))
 
   const launch = useMutation({
     mutationFn: () =>
@@ -50,6 +54,7 @@ export function DesignPage() {
         max_turns: maxTurns,
         focus: source === 'simula' && focus.trim() ? focus.trim() : null,
         reuse_scenarios_from_run_id: source === 'replay' ? (replayRun?.id ?? null) : null,
+        guard_ids: activeGuards.length === guards.length ? null : activeGuards.map((g) => g.id),
       }),
     onSuccess: (run) => {
       qc.invalidateQueries({ queryKey: keys.runs })
@@ -170,6 +175,49 @@ export function DesignPage() {
 
             <div className="h-px bg-line" />
             <SliderField label="Max turns per conversation" value={maxTurns} onChange={setMaxTurns} min={1} max={limits.max_turns} hint="A simulated user ends early once the outcome is clear." />
+
+            <div className="h-px bg-line" />
+            <div className="flex flex-col gap-3">
+              <div>
+                <div className="font-display text-[14px] font-semibold text-ink">Guard models</div>
+                <div className="text-[12.5px] text-ink-3">
+                  {guards.length
+                    ? 'Each one checks every reply against the guard policy, without changing the conversation. The run scores how many violations each would have stopped.'
+                    : 'None yet. Add decision models like Jev, Clef or Laya to this agent to measure how many violations they would stop.'}
+                </div>
+              </div>
+              {guards.length > 0 ? (
+                <div className="flex flex-col gap-1.5">
+                  {guards.map((g) => {
+                    const on = !skipGuards.includes(g.id)
+                    const toggle = () => setSkipGuards((s) => (on ? [...s, g.id] : s.filter((x) => x !== g.id)))
+                    return (
+                      <div
+                        key={g.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={toggle}
+                        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle())}
+                        className={cn('flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors', on ? 'border-ink bg-n-50' : 'border-line hover:border-line-2')}
+                      >
+                        <Checkbox checked={on} onChange={toggle} label={`Screen with ${g.name}`} />
+                        <span className="text-[13px] font-medium text-ink">{g.name}</span>
+                        <span className="ml-auto truncate font-mono text-[11.5px] text-ink-3">{g.kind === 'fake' ? 'offline' : shortModel(g.model)}</span>
+                      </div>
+                    )
+                  })}
+                  {!target?.guard_policy && (
+                    <p className="text-[12px] text-ink-3">No guard policy saved: the evaluator writes one from the system prompt when the run starts.</p>
+                  )}
+                </div>
+              ) : (
+                target && (
+                  <Button variant="secondary" size="sm" className="w-fit" onClick={() => setEditing(true)}>
+                    <ShieldCheck className="size-3.5" /> Add guard models
+                  </Button>
+                )
+              )}
+            </div>
           </Card>
         </motion.div>
 
@@ -198,6 +246,10 @@ export function DesignPage() {
                 <div className="flex justify-between gap-3">
                   <dt className="text-ink-3">Evaluator</dt>
                   <dd className="truncate font-mono text-[11.5px] text-ink-2">{target ? evaluatorLabel(target) : '…'}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-ink-3">Guards</dt>
+                  <dd className="text-ink-2">{activeGuards.length ? `${activeGuards.length} screening` : 'none'}</dd>
                 </div>
               </dl>
             </div>

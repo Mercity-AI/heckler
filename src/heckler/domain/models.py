@@ -111,6 +111,35 @@ class EvaluatorConnection(BaseModel):
     temperature: float | None = None
 
 
+class GuardConnection(BaseModel):
+    """A decision model (Jev, Clef, Laya...) that screens each of the agent's replies against the guard
+    policy, on the user's own key.
+
+    Guards run in shadow mode: they see every reply but never change the conversation, so their calls can
+    be scored against the evaluator's grade of the same chat. `systemone` is OpenRouter (its Decisions API)
+    or any endpoint serving TypeSafe's `POST /v1/systemone`; `fake` is a scripted offline guard.
+    """
+
+    id: str = Field(default_factory=lambda: new_id("grd"))
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal["systemone", "fake"] = "systemone"
+    base_url: str = "https://openrouter.ai/api/v1"
+    model: str = Field(min_length=1)
+    # None on OpenRouter: use the evaluator's OpenRouter key.
+    api_key: SecretStr | None = None
+    # A reply is blocked when the highest probability among the guard's questions reaches this.
+    threshold: float = Field(default=0.5, ge=0, le=1)
+
+
+class GuardInfo(BaseModel):
+    """A guard as a run records it: which model screened, without its endpoint or key."""
+
+    id: str
+    name: str
+    model: str
+    threshold: float = 0.5
+
+
 class Target(BaseModel):
     id: str = Field(default_factory=lambda: new_id("tgt"))
     name: str
@@ -119,6 +148,9 @@ class Target(BaseModel):
     connection: TargetConnection
     # None on agents created before evaluators were configurable: those fall back to server settings.
     evaluator: EvaluatorConnection | None = None
+    guards: list[GuardConnection] = Field(default_factory=list)
+    # What the guards enforce. Empty: written from the system prompt by the evaluator model when a run starts.
+    guard_policy: str | None = None
     # Clerk user id of the creator; None when auth is off (and on agents saved before auth existed).
     owner_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
@@ -230,6 +262,27 @@ class Usage(BaseModel):
         self.calls += 1
 
 
+class GuardDecision(BaseModel):
+    """One guard's call on one of the agent's replies."""
+
+    guard_id: str
+    guard_name: str
+    turn: int
+    # True: the guard would have blocked this reply. None: the call failed.
+    flagged: bool | None
+    # Highest probability across the guard's questions; compared with its threshold.
+    probability: float | None = None
+    # Question id ("violates_policy", "rule_1"...) -> probability that the reply breaks it.
+    rule_scores: dict[str, float] = Field(default_factory=dict)
+    # Numbers of the rules at or above the threshold.
+    violated_rules: list[str] = Field(default_factory=list)
+    latency_ms: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost: float | None = None
+    error: str | None = None
+
+
 class Conversation(BaseModel):
     id: str = Field(default_factory=lambda: new_id("cnv"))
     run_id: str
@@ -242,6 +295,7 @@ class Conversation(BaseModel):
     evaluation: Evaluation | None = None
     error: str | None = None
     attacker_usage: Usage = Field(default_factory=Usage)
+    guard_decisions: list[GuardDecision] = Field(default_factory=list)
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -275,6 +329,8 @@ class RunConfig(BaseModel):
     reuse_scenarios_from_run_id: str | None = None
     # Hand-written scenarios; when given, Simula is skipped.
     scenarios: list[Scenario] | None = None
+    # Which of the agent's guard models screen this run. None: all of them; []: none.
+    guard_ids: list[str] | None = None
 
 
 class GroupStats(BaseModel):
@@ -284,6 +340,53 @@ class GroupStats(BaseModel):
     broken: int = 0
     with_violations: int = 0
     mean_score: float | None = None
+
+
+class GuardStats(BaseModel):
+    """How well one guard model caught the violations the evaluator found.
+
+    Conversation level: the guard "flagged" a chat if it blocked any reply in it; the chat is "violating"
+    if the evaluator reported any violation or a breach. Turn level: a reply is violating when a
+    violation's quoted evidence is found in it (chats whose quotes can't be placed are left out).
+    """
+
+    guard_id: str
+    name: str
+    model: str
+    screened: int = 0
+    flagged_replies: int = 0
+    errors: int = 0
+    # conversation-level confusion matrix, over graded chats
+    tp: int = 0
+    fp: int = 0
+    fn: int = 0
+    tn: int = 0
+    precision: float | None = None
+    recall: float | None = None
+    f1: float | None = None
+    accuracy: float | None = None
+    false_positive_rate: float | None = None
+    # reply-level confusion matrix
+    turn_tp: int = 0
+    turn_fp: int = 0
+    turn_fn: int = 0
+    turn_tn: int = 0
+    turn_precision: float | None = None
+    turn_recall: float | None = None
+    # Violating chats where the guard blocked the first violating reply (or an earlier one): in blocking
+    # mode it would have stopped the violation before the user saw it.
+    stopped: int = 0
+    stoppable: int = 0
+    stop_rate: float | None = None
+    # Threshold-free, conversation level (a chat scores its highest reply probability): the chance a
+    # violating chat scores above a clean one, and the threshold that would have maximised F1.
+    auc: float | None = None
+    best_threshold: float | None = None
+    best_f1: float | None = None
+    mean_latency_ms: float | None = None
+    usage: Usage = Field(default_factory=Usage)
+    # USD, summed over the calls whose endpoint reported a cost.
+    cost: float | None = None
 
 
 class RunStats(BaseModel):
@@ -304,6 +407,8 @@ class RunStats(BaseModel):
     severity_counts: dict[str, int] = Field(default_factory=dict)
     by_category: dict[str, GroupStats] = Field(default_factory=dict)
     attacker_usage: Usage = Field(default_factory=Usage)
+    # Keyed by guard id, in the order the run lists its guards.
+    guards: dict[str, GuardStats] = Field(default_factory=dict)
 
 
 class Run(BaseModel):
@@ -314,6 +419,9 @@ class Run(BaseModel):
     config: RunConfig
     stats: RunStats = Field(default_factory=RunStats)
     taxonomy: dict[str, Any] | None = None
+    # The guard models screening this run, and the policy they were given.
+    guards: list[GuardInfo] = Field(default_factory=list)
+    guard_policy: str | None = None
     error: str | None = None
     # The home page's throwaway demo: runs against an unsaved agent and is left out of run listings.
     example: bool = False

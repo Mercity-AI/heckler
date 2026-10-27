@@ -66,6 +66,8 @@ def _target_to_json(target: Target) -> str:
         data["connection"]["api_key"] = target.connection.api_key.get_secret_value()
     if target.evaluator is not None and target.evaluator.api_key is not None:
         data["evaluator"]["api_key"] = target.evaluator.api_key.get_secret_value()
+    for guard, stored in zip(target.guards, data["guards"]):
+        stored["api_key"] = guard.api_key.get_secret_value() if guard.api_key is not None else None
     return json.dumps(data)
 
 

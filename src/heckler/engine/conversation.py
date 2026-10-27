@@ -17,6 +17,7 @@ from ..domain.models import (
     utcnow,
 )
 from ..events import EventType
+from ..guards.screen import Guard
 from ..llm.base import LLMError
 from ..targets.base import TargetClient, TargetError
 
@@ -38,9 +39,11 @@ def _label(conversation: Conversation) -> str:
 
 
 class ConversationRunner:
-    def __init__(self, *, publish: Publish, persist: Persist) -> None:
+    def __init__(self, *, publish: Publish, persist: Persist, guards: list[Guard] | None = None) -> None:
         self._publish = publish
         self._persist = persist
+        # Shadow mode: every guard screens every agent reply in the background; the chat never waits on them.
+        self._guards = guards or []
 
     async def run(self, conversation: Conversation, attacker: AttackerAgent, target: TargetClient, max_turns: int) -> Conversation:
         conversation.status = ConversationStatus.RUNNING
@@ -48,14 +51,15 @@ class ConversationRunner:
         await self._persist(conversation)
         self._publish(EventType.CONVERSATION_STARTED, {"conversation_id": conversation.id, "agent_name": conversation.agent_name})
 
+        screening: list[asyncio.Task[None]] = []
         try:
-            conversation.end_reason = await self._play(conversation, attacker, target, max_turns)
+            conversation.end_reason = await self._play(conversation, attacker, target, max_turns, screening)
             logger.info(
                 "%s ended: %s after %d target replies%s",
                 _label(conversation), conversation.end_reason, sum(m.role == "target" for m in conversation.messages),
                 f" ({conversation.error})" if conversation.error else "",
             )
-            await self._evaluate(conversation, attacker)
+            await asyncio.gather(self._evaluate(conversation, attacker), self._finish_screening(conversation, screening))
         except asyncio.CancelledError:
             conversation.status = ConversationStatus.CANCELLED
             conversation.end_reason = EndReason.CANCELLED
@@ -64,12 +68,16 @@ class ConversationRunner:
             logger.exception("conversation %s crashed", conversation.id)
             self._fail(conversation, f"Unexpected error: {exc}")
         finally:
+            for task in screening:
+                task.cancel()
             conversation.attacker_usage = attacker.usage
             conversation.finished_at = utcnow()
             await asyncio.shield(self._persist(conversation))
         return conversation
 
-    async def _play(self, conversation: Conversation, attacker: AttackerAgent, target: TargetClient, max_turns: int) -> EndReason:
+    async def _play(
+        self, conversation: Conversation, attacker: AttackerAgent, target: TargetClient, max_turns: int, screening: list[asyncio.Task[None]]
+    ) -> EndReason:
         for turn in range(1, max_turns + 1):
             try:
                 attacker_turn = await attacker.next_message(conversation.messages)
@@ -100,6 +108,8 @@ class ConversationRunner:
                 _label(conversation), turn, len(attacker_turn.text), len(reply), time.perf_counter() - started,
             )
             await self._append(conversation, TranscriptMessage(role="target", content=reply, turn=turn))
+            transcript = list(conversation.messages)
+            screening += [asyncio.create_task(self._screen(conversation, guard, transcript)) for guard in self._guards]
 
             if attacker_turn.wants_to_end:  # parting line delivered, target answered
                 return EndReason.ATTACKER_ENDED
@@ -135,6 +145,20 @@ class ConversationRunner:
                 "error": conversation.error,
             },
         )
+
+    async def _screen(self, conversation: Conversation, guard: Guard, transcript: list[TranscriptMessage]) -> None:
+        decision = await guard.screen(transcript)
+        conversation.guard_decisions.append(decision)
+        self._publish(EventType.GUARD_DECISION, {"conversation_id": conversation.id, "decision": decision.model_dump(mode="json")})
+
+    async def _finish_screening(self, conversation: Conversation, screening: list[asyncio.Task[None]]) -> None:
+        if not screening:
+            return
+        await asyncio.gather(*screening)
+        order = {guard.info.id: i for i, guard in enumerate(self._guards)}
+        conversation.guard_decisions.sort(key=lambda d: (d.turn, order.get(d.guard_id, len(order))))
+        flagged = sum(bool(d.flagged) for d in conversation.guard_decisions)
+        logger.info("%s screened: %d guard call(s), %d flagged", _label(conversation), len(conversation.guard_decisions), flagged)
 
     async def _append(self, conversation: Conversation, message: TranscriptMessage) -> None:
         conversation.messages.append(message)

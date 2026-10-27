@@ -6,6 +6,7 @@ import type {
   EndReason,
   Evaluation,
   GeneratorCall,
+  GuardDecision,
   RunDetail,
   RunEvent,
   RunStats,
@@ -27,6 +28,8 @@ export interface LiveConversation {
   evaluation: Evaluation | null
   end_reason: EndReason | null
   error: string | null
+  /** Every guard model's call on every agent reply so far. */
+  guard_decisions: GuardDecision[]
   /** When grading finished (or the chat failed); orders the score timeline. */
   completedAt: string | null
   /** Present when the run came from a snapshot and details are still loading. */
@@ -100,6 +103,7 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
           evaluation: null,
           end_reason: c.end_reason,
           error: c.error,
+          guard_decisions: [],
           completedAt: null,
           summary: c,
         }
@@ -152,6 +156,7 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
               evaluation: null,
               end_reason: null,
               error: null,
+              guard_decisions: [],
               completedAt: null,
             }
           }
@@ -167,6 +172,10 @@ function reducer(state: RunStreamState, action: Action): RunStreamState {
         case 'conversation.message': {
           const message = d.message as unknown as TranscriptMessage
           return patch(s, d.conversation_id, (c) => ({ status: c.status === 'pending' ? 'running' : c.status, messages: [...c.messages, message] }))
+        }
+        case 'conversation.guard': {
+          const decision = d.decision as unknown as GuardDecision
+          return patch(s, d.conversation_id, (c) => ({ guard_decisions: [...c.guard_decisions, decision] }))
         }
         case 'conversation.evaluating':
           return patch(s, d.conversation_id, () => ({ status: 'evaluating' }))
@@ -209,6 +218,7 @@ const EVENT_TYPES = [
   'scenarios.ready',
   'conversation.started',
   'conversation.message',
+  'conversation.guard',
   'conversation.evaluating',
   'conversation.completed',
   'conversation.failed',
@@ -274,6 +284,7 @@ export function useRunStream(runId: string): RunStreamState {
                 evaluation: c.evaluation,
                 end_reason: c.end_reason,
                 error: c.error,
+                guard_decisions: c.guard_decisions ?? [],
                 completedAt: c.finished_at,
               },
             })

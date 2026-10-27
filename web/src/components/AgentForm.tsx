@@ -6,7 +6,9 @@ import { api } from '../lib/api'
 import { EXAMPLE_AGENTS } from '../lib/examples'
 import { cn } from '../lib/format'
 import { keys, useConfig } from '../lib/queries'
-import type { ConnectionTestResult, EvaluatorConnection, ProbeResult, Target, TargetConnection, TargetCreate } from '../lib/types'
+import type { ConnectionTestResult, EvaluatorConnection, GuardProbeResult, ProbeResult, Target, TargetConnection, TargetCreate } from '../lib/types'
+import { buildGuards, guardDrafts, isOpenRouter, type GuardDraft } from '../lib/guards'
+import { GuardFields } from './GuardFields'
 import { Button } from './ui/button'
 import { Chip, Field, Input, Segmented, Switch, Textarea } from './ui/primitives'
 
@@ -20,7 +22,7 @@ const collapse = {
   transition: { duration: 0.28, ease: EASE },
 }
 
-function SectionHead({ n, title, sub }: { n: number; title: string; sub: ReactNode }) {
+function SectionHead({ n, title, sub }: { n: number; title: ReactNode; sub: ReactNode }) {
   return (
     <div className="flex items-start gap-3">
       <span className="mt-px grid size-6 shrink-0 place-items-center rounded-full bg-ink font-mono text-[11px] text-white">{n}</span>
@@ -51,9 +53,16 @@ function ProbeLine({ label, r }: { label: string; r: ProbeResult }) {
   )
 }
 
+/** A guard's probe: it should allow the harmless sample reply; blocking it means it over-blocks or misreads the format. */
+function guardProbe(g: GuardProbeResult): ProbeResult {
+  if (!g.ok || g.flagged === false) return g
+  return { ...g, ok: false, error: `Blocked a harmless sample reply (${g.reply ?? 'no score'}). Its threshold may be too low for this model.` }
+}
+
 /**
- * Connect (or edit) an agent: the agent under test, and the evaluator model that plays its users and
- * grades the conversations. Both run on keys the user brings.
+ * Connect (or edit) an agent: the agent under test, the evaluator model that plays its users and grades
+ * the conversations, and optional guard models scored on how many violations they would have stopped.
+ * All run on keys the user brings.
  */
 export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target; submitLabel?: string; onSaved: (t: Target) => void }) {
   const qc = useQueryClient()
@@ -94,12 +103,18 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
   const evModelName = evModel ?? suggested?.model ?? ''
   const evScenarioModel = evScenario ?? suggested?.scenario_model ?? ''
 
+  // guard models (optional)
+  const [guards, setGuards] = useState<GuardDraft[]>(() => guardDrafts(initial))
+  const [guardPolicy, setGuardPolicy] = useState(initial?.guard_policy ?? '')
+
   const [formError, setFormError] = useState<string | null>(null)
   const [test, setTest] = useState<ConnectionTestResult | null>(null)
 
   const savedTargetKey = ic?.kind === 'openai_chat' && ic.api_key === '***'
   const savedEvKey = ie?.api_key === '***'
   const needsEvaluator = kind !== 'fake'
+  // guards on OpenRouter can run on the evaluator's OpenRouter key instead of their own
+  const sharedGuardKey = needsEvaluator && isOpenRouter(evBaseUrl) && (!!evKey || savedEvKey)
 
   function build(): TargetCreate | string {
     if (!name.trim()) return 'Give the agent a name.'
@@ -142,7 +157,17 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
         api_key: evKey || '***',
       }
     }
-    return { name: name.trim(), description: initial?.description ?? null, system_prompt: systemPrompt, connection, evaluator }
+    const guardList = buildGuards(guards, sharedGuardKey)
+    if (typeof guardList === 'string') return guardList
+    return {
+      name: name.trim(),
+      description: initial?.description ?? null,
+      system_prompt: systemPrompt,
+      connection,
+      evaluator,
+      guards: guardList,
+      guard_policy: guardPolicy.trim() || null,
+    }
   }
 
   const save = useMutation({
@@ -174,6 +199,17 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
     if (typeof body === 'string') return setFormError(body)
     probe.mutate(body)
   }
+
+  const writePolicy = useMutation({
+    mutationFn: () =>
+      api.guardPolicy({
+        system_prompt: systemPrompt,
+        offline: !needsEvaluator,
+        target_id: initial?.id ?? null,
+        evaluator: needsEvaluator && evModelName.trim() ? { base_url: evBaseUrl.trim(), model: evModelName.trim(), api_key: evKey || (savedEvKey ? '***' : null) } : null,
+      }),
+    onSuccess: (r) => setGuardPolicy(r.policy),
+  })
 
   function loadExample(key: string) {
     const ex = EXAMPLE_AGENTS.find((x) => x.key === key)
@@ -329,6 +365,34 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
         )}
       </AnimatePresence>
 
+      {/* 3. guard models (optional) */}
+      <div className="flex flex-col gap-5 border-t border-line p-4 sm:p-6">
+        <SectionHead
+          n={needsEvaluator ? 3 : 2}
+          title={
+            <>
+              Guard models <span className="font-normal text-ink-3">(optional)</span>
+            </>
+          }
+          sub="Decision models such as Jev, Clef or Laya, on OpenRouter or their own endpoint. They don't write text: they score each reply against every rule of your policy and return a probability. They watch every conversation without changing it, and each run measures how many of the evaluator's violations they would have stopped."
+        />
+        <GuardFields
+          guards={guards}
+          setGuards={setGuards}
+          policy={guardPolicy}
+          setPolicy={setGuardPolicy}
+          offline={!needsEvaluator}
+          sharedKey={sharedGuardKey}
+          onWritePolicy={() => {
+            writePolicy.reset()
+            if (!systemPrompt.trim()) return setFormError('Paste the system prompt first: the policy is written from it.')
+            writePolicy.mutate()
+          }}
+          writing={writePolicy.isPending}
+          writeError={writePolicy.error ? (writePolicy.error as Error).message : null}
+        />
+      </div>
+
       {/* footer: test, then save */}
       <div className="flex flex-col gap-3 border-t border-line px-4 py-4 sm:px-6">
         <AnimatePresence initial={false}>
@@ -337,6 +401,9 @@ export function AgentForm({ initial, submitLabel, onSaved }: { initial?: Target;
               <div className="grid gap-2 sm:grid-cols-2">
                 <ProbeLine label="Your agent" r={test.target} />
                 {test.evaluator && <ProbeLine label="Evaluator" r={test.evaluator} />}
+                {test.guards.map((g) => (
+                  <ProbeLine key={g.guard_id} label={g.name} r={guardProbe(g)} />
+                ))}
               </div>
             </motion.div>
           )}

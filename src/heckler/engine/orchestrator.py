@@ -19,6 +19,8 @@ from ..domain.models import (
     Conversation,
     ConversationStatus,
     FakeConnection,
+    GuardConnection,
+    GuardInfo,
     ModelSpec,
     Run,
     RunConfig,
@@ -28,6 +30,8 @@ from ..domain.models import (
     utcnow,
 )
 from ..events import EventBus, EventType
+from ..guards.screen import Guard, write_policy
+from ..guards.systemone import FakeSystemOneClient, HttpSystemOneClient, SystemOneClient, guard_key
 from ..llm.base import LLMProvider
 from ..llm.factory import ProviderRegistry
 from ..llm.openai_compat import OpenAICompatibleProvider
@@ -53,12 +57,16 @@ class EvaluatorModels:
     provider: LLMProvider
     attacker: ModelSpec
     simula: RoleModels
+    # The guard models screening this run, each with the System One client it is called through.
+    guards: list[tuple[GuardConnection, SystemOneClient]] = field(default_factory=list)
     # Providers built for this run only (the agent owner's own key); closed when the run ends.
     owned: list[LLMProvider] = field(default_factory=list)
 
     async def aclose(self) -> None:
         for provider in self.owned:
             await provider.aclose()
+        for _, client in self.guards:
+            await client.aclose()
 
 
 def evaluator_label(index: int) -> str:
@@ -115,6 +123,27 @@ class RunOrchestrator:
             return EvaluatorModels(provider=fake, attacker=spec, simula={role: (fake, spec) for role in ROLE_MAX_TOKENS})
         raise RunValidationError("This agent has no evaluator model. Edit the agent and add the evaluator's endpoint and API key.")
 
+    def guard_models(self, target: Target, config: RunConfig) -> list[tuple[GuardConnection, SystemOneClient]]:
+        """The agent's guards this run screens with (all of them unless `config.guard_ids` picks some).
+
+        Each runs on its own key, like the evaluator (a guard on OpenRouter may share the evaluator's
+        OpenRouter key); the offline demo guards are scripted."""
+        known = {g.id for g in target.guards}
+        unknown = [g for g in (config.guard_ids or []) if g not in known]
+        if unknown:
+            raise RunValidationError(f"Unknown guard model(s) for this agent: {', '.join(unknown)}.")
+        picked = target.guards if config.guard_ids is None else [g for g in target.guards if g.id in set(config.guard_ids)]
+        missing = [g.name for g in picked if g.kind == "systemone" and not guard_key(g, target.evaluator)]
+        if missing:
+            raise RunValidationError(f"Add an API key for the guard model '{missing[0]}' in this agent's settings.")
+        return [(guard, self.guard_client(guard, target)) for guard in picked]
+
+    def guard_client(self, guard: GuardConnection, target: Target) -> SystemOneClient:
+        if guard.kind == "fake":
+            return FakeSystemOneClient(latency_seconds=self._settings.fake_latency_seconds)
+        key = guard_key(guard, target.evaluator) or ""
+        return HttpSystemOneClient(base_url=guard.base_url, api_key=key, timeout=self._settings.llm_timeout_seconds)
+
     # ------------------------------------------------------------------ public API
 
     def normalise_config(self, config: RunConfig) -> RunConfig:
@@ -132,9 +161,16 @@ class RunOrchestrator:
     async def start_run(self, target: Target, config: RunConfig, *, example: bool = False) -> Run:
         config = self.normalise_config(config)
         models = self.evaluator_models(target)  # fails fast on a missing key, before anything is saved
+        try:
+            models.guards = self.guard_models(target, config)
+        except RunValidationError:
+            await models.aclose()
+            raise
         if config.reuse_scenarios_from_run_id:
             await self._repo.get_run(config.reuse_scenarios_from_run_id)  # 404 early if it doesn't exist
         run = Run(target_id=target.id, target_name=target.name, config=config, example=example, owner_id=target.owner_id)
+        run.guards = [GuardInfo(id=g.id, name=g.name, model=g.model, threshold=g.threshold) for g, _ in models.guards]
+        run.guard_policy = (target.guard_policy or "").strip() or None if models.guards else None
         await self._repo.save_run(run)
         self._publish(run.id, EventType.RUN_STATUS, {"status": run.status})
         task = asyncio.create_task(self._execute(run, target, models), name=f"run:{run.id}")
@@ -196,6 +232,7 @@ class RunOrchestrator:
             )
             # Built first so a misconfigured target fails before we spend money on scenarios.
             target_client = self._target_factory(target)
+            guards = await self._build_guards(run, target, models)
             scenarios = await self._resolve_scenarios(run, target, models)
             logger.info("run %s: %d scenarios ready, starting conversations", run.id, len(scenarios))
 
@@ -205,7 +242,7 @@ class RunOrchestrator:
             ]
             for conversation in conversations:
                 await self._repo.save_conversation(conversation)
-            run.stats = compute_stats(conversations)
+            run.stats = compute_stats(conversations, run.guards)
             self._publish(
                 run.id,
                 EventType.SCENARIOS_READY,
@@ -219,9 +256,9 @@ class RunOrchestrator:
             )
 
             await self._set_status(run, RunStatus.RUNNING)
-            await self._run_conversations(run, target, target_client, conversations, models)
+            await self._run_conversations(run, target, target_client, conversations, models, guards)
 
-            run.stats = compute_stats(conversations)
+            run.stats = compute_stats(conversations, run.guards)
             await self._set_status(run, RunStatus.COMPLETED)
         except asyncio.CancelledError:
             await asyncio.shield(self._finish_cancelled(run, conversations))
@@ -229,7 +266,7 @@ class RunOrchestrator:
         except Exception as exc:  # noqa: BLE001 - surface any failure on the run itself
             logger.exception("run %s failed", run.id)
             run.error = str(exc)
-            run.stats = compute_stats(conversations)
+            run.stats = compute_stats(conversations, run.guards)
             await self._set_status(run, RunStatus.FAILED)
         finally:
             if target_client is not None:
@@ -246,6 +283,19 @@ class RunOrchestrator:
             )
             self._publish(run.id, EventType.RUN_FINISHED, {"status": run.status, "stats": run.stats.model_dump(mode="json"), "error": run.error})
             self._bus.close(run.id)
+
+    async def _build_guards(self, run: Run, target: Target, models: EvaluatorModels) -> list[Guard]:
+        """Bind each guard to the run's policy, first writing one from the system prompt if the agent has none."""
+        if not models.guards:
+            return []
+        if not run.guard_policy:
+            run.guard_policy = await write_policy(models.provider, models.attacker.model, target.system_prompt)
+            await self._repo.save_run(run)
+            logger.info("run %s: wrote a %d-char guard policy from the system prompt", run.id, len(run.guard_policy))
+        return [
+            Guard(info=GuardInfo(id=g.id, name=g.name, model=g.model, threshold=g.threshold), client=client, model=g.model, policy=run.guard_policy, threshold=g.threshold)
+            for g, client in models.guards
+        ]
 
     async def _resolve_scenarios(self, run: Run, target: Target, models: EvaluatorModels) -> list[Scenario]:
         config = run.config
@@ -273,7 +323,13 @@ class RunOrchestrator:
         return result.scenarios
 
     async def _run_conversations(
-        self, run: Run, target: Target, target_client: TargetClient, conversations: list[Conversation], models: EvaluatorModels
+        self,
+        run: Run,
+        target: Target,
+        target_client: TargetClient,
+        conversations: list[Conversation],
+        models: EvaluatorModels,
+        guards: list[Guard],
     ) -> None:
         # Every conversation gets its own evaluator and, by default, they all start at once.
         limit = min(run.config.concurrency or len(conversations), self._settings.max_concurrency)
@@ -282,6 +338,7 @@ class RunOrchestrator:
         runner = ConversationRunner(
             publish=lambda type_, data: self._publish(run.id, type_, data),
             persist=self._repo.save_conversation,
+            guards=guards,
         )
 
         async def one(conversation: Conversation) -> None:
@@ -296,7 +353,7 @@ class RunOrchestrator:
                 )
                 await runner.run(conversation, attacker, target_client, run.config.max_turns)
             async with stats_lock:
-                run.stats = compute_stats(conversations)
+                run.stats = compute_stats(conversations, run.guards)
                 await self._repo.save_run(run)
                 self._publish(run.id, EventType.STATS, run.stats.model_dump(mode="json"))
 
@@ -309,7 +366,7 @@ class RunOrchestrator:
             if conversation.status in {ConversationStatus.PENDING, ConversationStatus.RUNNING, ConversationStatus.EVALUATING}:
                 conversation.status = ConversationStatus.CANCELLED
                 await self._repo.save_conversation(conversation)
-        run.stats = compute_stats(conversations)
+        run.stats = compute_stats(conversations, run.guards)
         await self._set_status(run, RunStatus.CANCELLED)
 
     async def _set_status(self, run: Run, status: RunStatus) -> None:

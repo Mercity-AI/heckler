@@ -6,7 +6,8 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 from statistics import fmean
 
-from ..domain.models import Conversation, ConversationStatus, Evaluation, GroupStats, RunStats, Usage, Verdict
+from ..domain.models import Conversation, ConversationStatus, Evaluation, GroupStats, GuardInfo, RunStats, Usage, Verdict
+from ..guards.metrics import guard_stats
 
 _FINISHED = {ConversationStatus.COMPLETED, ConversationStatus.FAILED, ConversationStatus.CANCELLED}
 
@@ -38,7 +39,7 @@ def _group(conversations: list[Conversation], key: Callable[[Conversation], str]
     return groups
 
 
-def compute_stats(conversations: Iterable[Conversation]) -> RunStats:
+def compute_stats(conversations: Iterable[Conversation], guards: list[GuardInfo] | None = None) -> RunStats:
     items = list(conversations)
     evals = [c.evaluation for c in items if c.evaluation is not None]
 
@@ -79,4 +80,5 @@ def compute_stats(conversations: Iterable[Conversation]) -> RunStats:
         severity_counts=dict(severity_counts),
         by_category=_group(items, lambda c: c.scenario.category),
         attacker_usage=usage,
+        guards=guard_stats(items, guards or []),
     )

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ConversationCard } from '../components/run/ConversationCard'
 import { ConversationSheet } from '../components/run/ConversationSheet'
+import { GuardsPanel } from '../components/run/GuardsPanel'
 import { Insights } from '../components/run/Insights'
 import { ScenarioMap } from '../components/run/ScenarioMap'
 import { SimulaPanel } from '../components/run/SimulaPanel'
@@ -20,7 +21,7 @@ import { cn, duration, isActive, relativeTime } from '../lib/format'
 import { keys, useRun } from '../lib/queries'
 import { outcomeOf } from '../lib/outcome'
 
-type Tab = 'live' | 'insights' | 'scenarios'
+type Tab = 'live' | 'insights' | 'guards' | 'scenarios'
 type Filter = 'all' | 'violated' | 'breached' | 'held' | 'active'
 
 const FILTERS: { value: Filter; label: string; test: (c: LiveConversation) => boolean }[] = [
@@ -123,6 +124,7 @@ export function RunViewPage() {
   const cancel = useMutation({ mutationFn: () => api.cancelRun(runId), onSuccess: () => qc.invalidateQueries({ queryKey: keys.runs }) })
 
   const detail = run.data
+  const guards = detail?.guards ?? []
   const targetName = detail?.target_name ?? '…'
   const maxTurns = detail?.config.max_turns ?? 6
   const heat = stats?.evaluated ? stats.broken / stats.evaluated : 0
@@ -273,6 +275,7 @@ export function RunViewPage() {
                 items={[
                   { value: 'live', label: active ? 'Live conversations' : 'Conversations', count: conversations.length },
                   { value: 'insights', label: 'Insights' },
+                  ...(guards.length ? [{ value: 'guards' as const, label: 'Guard models', count: guards.length }] : []),
                   { value: 'scenarios', label: 'Scenarios' },
                 ]}
               />
@@ -312,6 +315,7 @@ export function RunViewPage() {
                     </Card>
                   ))}
                 {tab === 'insights' && <Insights stats={stats} conversations={conversations} onOpen={openConversation} maxTurns={maxTurns} />}
+                {tab === 'guards' && <GuardsPanel guards={guards} stats={stats?.guards} policy={detail?.guard_policy ?? null} conversations={conversations} onOpen={openConversation} />}
                 {tab === 'scenarios' && <ScenarioMap taxonomy={taxonomy} conversations={conversations} onOpen={openConversation} />}
               </motion.div>
             </AnimatePresence>
@@ -321,6 +325,8 @@ export function RunViewPage() {
 
       <ConversationSheet
         conversation={openIdx >= 0 ? conversations[openIdx] : null}
+        guards={guards}
+        guardPolicy={detail?.guard_policy ?? null}
         targetName={targetName}
         maxTurns={maxTurns}
         onClose={() => openConversation(null)}
