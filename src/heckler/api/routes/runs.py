@@ -5,13 +5,19 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from sse_starlette.sse import EventSourceResponse
 
-from ...domain.models import Conversation, FakeConnection, Run, RunConfig, Target
+from ...domain.models import Conversation, FakeConnection, GuardConnection, Run, RunConfig, Target
 from ...events import EventType
 from ..auth import User, check_owner, current_user
 from ..container import Container, get_container
 from ..schemas import ConversationSummary, ExampleRunCreate, RunCreate, RunDetail, RunSummary
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+
+# The demo's scripted guards: one over-blocks, one is under-confident (see guards.systemone.FakeSystemOneClient).
+OFFLINE_GUARDS = [
+    GuardConnection(id="grd_offline_strict", name="Strict guard", kind="fake", model="offline-strict"),
+    GuardConnection(id="grd_offline_lenient", name="Under-confident guard", kind="fake", model="offline-lenient"),
+]
 
 
 async def _owned_run(run_id: str, c: Container, user: User) -> Run:
@@ -56,6 +62,7 @@ async def create_example_run(
         description=body.description,
         system_prompt=body.system_prompt,
         connection=FakeConnection(behavior="leaky"),
+        guards=OFFLINE_GUARDS if body.guards else [],
         owner_id=user.id,
     )
     config = RunConfig(num_scenarios=body.num_scenarios, max_turns=body.max_turns)

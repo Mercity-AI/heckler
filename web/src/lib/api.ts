@@ -1,6 +1,7 @@
 import type {
   Conversation,
   ConnectionTestResult,
+  EvaluatorConnection,
   ExampleRunCreate,
   ProbeResult,
   PublicConfig,
@@ -59,6 +60,9 @@ export const api = {
   /** Checks unsaved settings: one message to the agent, one to the evaluator. `target_id` fills in stored keys. */
   testConnection: (body: TargetCreate & { target_id?: string | null }) =>
     request<ConnectionTestResult>('/targets/test', { method: 'POST', body: JSON.stringify(body) }),
+  /** Drafts a guard policy from a system prompt on the agent's evaluator (or the offline script). */
+  guardPolicy: (body: { system_prompt: string; evaluator?: EvaluatorConnection | null; target_id?: string | null; offline?: boolean }) =>
+    request<{ policy: string }>('/targets/guard-policy', { method: 'POST', body: JSON.stringify(body) }),
   deleteTarget: (id: string) => request<void>(`/targets/${id}`, { method: 'DELETE' }),
   probeTarget: (id: string, message?: string) =>
     request<ProbeResult>(`/targets/${id}/probe`, { method: 'POST', body: JSON.stringify(message ? { message } : {}) }),

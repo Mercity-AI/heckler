@@ -25,6 +25,7 @@ import re
 import time
 import types
 from collections import Counter
+from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -34,9 +35,10 @@ from simula.data_models import Config as SimulaConfig
 from simula.generate import generate_dataset
 from simula.models import ModelRouter
 from simula.prompts import PromptSet
-from simula.utils import artifact_path, read_json
+from simula.taxonomy import _root_key, _strategies_or_fallback, walk_nodes
+from simula.utils import artifact_path, read_json, write_json
 
-from ..domain.models import ChatMessage, ModelSpec, Scenario, Target
+from ..domain.models import ChatMessage, ModelSpec, Scenario, ScenarioCall, Target
 from ..llm.base import LLMResponse
 from .base import GeneratorCall, ProgressCallback, RoleModels, ScenarioGenerationError, ScenarioGenerator, ScenarioProgress, ScenarioSet
 
@@ -60,9 +62,48 @@ _PROMPT_OVERRIDES.SYSTEM_JSON = SYSTEM_JSON
 _FENCED = re.compile(r"```(?:json)?\s*(.*?)(?:```|\Z)", flags=re.DOTALL | re.IGNORECASE)
 _TRUNCATED = {"length", "max_tokens"}
 
+# Calls whose replies name taxonomy nodes. Simula joins node names into paths with "/" (and also accepts
+# "."), so a name like "false authority/urgency" splits into a node that doesn't exist and fails the run.
+_TAXONOMY_TASKS = {"factor_discovery", "node_expansion", "taxonomy_critic"}
+_SLASHES = re.compile(r"\s*/+\s*")
+
+
+def _clean_node_names(value: Any) -> Any:
+    """Replace path separators in every "name" of a taxonomy reply, so each name stays one path segment."""
+    if isinstance(value, list):
+        return [_clean_node_names(v) for v in value]
+    if isinstance(value, dict):
+        return {
+            k: (_SLASHES.sub(" or ", v.replace(".", "").strip(" /")) if k == "name" and isinstance(v, str) else _clean_node_names(v))
+            for k, v in value.items()
+        }
+    return value
+
+
 
 class SimulaJSONError(ValueError):
     """A Simula step's reply was not a JSON object, even after one corrective retry."""
+
+
+def _repair_strategies(output_dir: Path) -> bool:
+    """Remove strategy references to taxonomy paths that don't exist. False when there is nothing to fix."""
+    taxonomy = read_json(artifact_path(output_dir, "taxonomy"))
+    saved = read_json(artifact_path(output_dir, "strategies"))
+    if not taxonomy or not saved:
+        return False
+    valid = {_root_key("/".join(n.get("path", [n["name"]]))) for f in taxonomy["factors"] for n in walk_nodes(f)}
+    strategies = []
+    for strategy in saved.get("strategies") or []:
+        roots = [r for r in strategy.get("taxonomy_roots") or [] if _root_key(str(r)) in valid]
+        if not roots:
+            continue
+        pairs = [
+            p for p in strategy.get("never_combine") or []
+            if isinstance(p, (list, tuple)) and all(_root_key(str(r)) in valid for r in p)
+        ]
+        strategies.append({**strategy, "taxonomy_roots": roots, "never_combine": pairs})
+    write_json(artifact_path(output_dir, "strategies"), {"strategies": strategies or _strategies_or_fallback({}, taxonomy)})
+    return True
 
 
 def parse_json_reply(text: str) -> dict[str, Any]:
@@ -215,12 +256,21 @@ def _preview(text: str, head: int = 700, tail: int = 900) -> str:
 class _ProviderRouter(ModelRouter):
     """Simula ModelRouter whose calls go through our provider-agnostic LLM layer."""
 
-    def __init__(self, config: dict[str, Any], roles: RoleModels, on_call: Callable[[GeneratorCall], Awaitable[None]]) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        roles: RoleModels,
+        on_call: Callable[[GeneratorCall], Awaitable[None]],
+        call_log: list[ScenarioCall] | None = None,
+    ) -> None:
         super().__init__(config)
         self._roles = roles
         self._on_call = on_call
         self._ids = itertools.count(1)
         self.tokens = Counter()
+        self.cost: float | None = None
+        # Every call in full (system prompt, messages, output, usage), for the run's stored record.
+        self.call_log = call_log if call_log is not None else []
 
     async def complete(self, role: str, prompt: str, system: str, task: str = "unknown") -> str:
         response = await self._call(role, [ChatMessage(role="user", content=prompt)], system, str(task))
@@ -232,7 +282,7 @@ class _ProviderRouter(ModelRouter):
         messages = [ChatMessage(role="user", content=prompt)]
         response = await self._call(role, messages, system, task)
         try:
-            return parse_json_reply(response.text)
+            return self._parsed(task, response.text)
         except ValueError as exc:
             error = str(exc)
         truncated = response.stop_reason in _TRUNCATED
@@ -246,11 +296,16 @@ class _ProviderRouter(ModelRouter):
         ]
         retry = await self._call(role, messages, system, task)
         try:
-            return parse_json_reply(retry.text)
+            return self._parsed(task, retry.text)
         except ValueError as exc:
             message = _describe_bad_reply(task, spec.model, retry, str(exc), spec.max_tokens)
             logger.error("simula %s", message)
             raise SimulaJSONError(message) from exc
+
+    @staticmethod
+    def _parsed(task: str, text: str) -> Any:
+        data = parse_json_reply(text)
+        return _clean_node_names(data) if task in _TAXONOMY_TASKS else data
 
     async def _call(self, role: str, messages: list[ChatMessage], system: str, task: str) -> LLMResponse:
         provider, spec = self._roles[role]
@@ -260,6 +315,10 @@ class _ProviderRouter(ModelRouter):
         )
         await self._on_call(call)
         started = time.perf_counter()
+        record = ScenarioCall(
+            id=call.id, task=task, phase=call.phase, role=role, model=spec.model, status="error",
+            started_at=datetime.now(timezone.utc), system=system, messages=list(messages),
+        )
         try:
             response = await provider.complete(
                 model=spec.model,
@@ -270,13 +329,27 @@ class _ProviderRouter(ModelRouter):
             )
         except Exception as exc:
             logger.warning("simula call #%d %s (%s) failed after %.1fs: %s", call.id, task, spec.model, time.perf_counter() - started, exc)
+            self.call_log.append(record.model_copy(update={"duration_ms": int((time.perf_counter() - started) * 1000), "error": str(exc)}))
             await self._on_call(call.model_copy(update={"status": "error", "duration_ms": int((time.perf_counter() - started) * 1000), "error": str(exc)[:500]}))
             raise
+        duration_ms = int((time.perf_counter() - started) * 1000)
         logger.info(
-            "simula call #%d %s (%s): %d in / %d out tokens, stop=%s, %.1fs",
-            call.id, task, spec.model, response.input_tokens, response.output_tokens, response.stop_reason, time.perf_counter() - started,
+            "simula call #%d %s (%s): %d in / %d out tokens, stop=%s, %.1fs%s",
+            call.id, task, spec.model, response.input_tokens, response.output_tokens, response.stop_reason, duration_ms / 1000,
+            f", ${response.cost:.6f}" if response.cost is not None else "",
         )
         self.tokens.update(input_tokens=response.input_tokens, output_tokens=response.output_tokens, calls=1)
+        if response.cost is not None:
+            self.cost = round((self.cost or 0.0) + response.cost, 8)
+        self.call_log.append(
+            record.model_copy(
+                update={
+                    "status": "done", "duration_ms": duration_ms, "output": response.text,
+                    "input_tokens": response.input_tokens, "output_tokens": response.output_tokens,
+                    "cost": response.cost, "stop_reason": response.stop_reason,
+                }
+            )
+        )
         await self._on_call(
             call.model_copy(
                 update={
@@ -284,6 +357,7 @@ class _ProviderRouter(ModelRouter):
                     "duration_ms": int((time.perf_counter() - started) * 1000),
                     "input_tokens": response.input_tokens,
                     "output_tokens": response.output_tokens,
+                    "cost": response.cost,
                     "output": response.text.strip()[:2400],
                 }
             )
@@ -315,6 +389,7 @@ class SimulaScenarioGenerator(ScenarioGenerator):
         workdir_name: str,
         models: RoleModels,
         on_progress: ProgressCallback | None = None,
+        call_log: list[ScenarioCall] | None = None,
     ) -> ScenarioSet:
         output_dir = self._output_root / workdir_name
         roles = models
@@ -332,11 +407,19 @@ class SimulaScenarioGenerator(ScenarioGenerator):
             if on_progress is not None:
                 await on_progress(ScenarioProgress(phase=call.phase, calls=total, detail=call.task, call=call))
 
-        router = _ProviderRouter(cfg.data, roles, on_call)
+        router = _ProviderRouter(cfg.data, roles, on_call, call_log)
         started = time.perf_counter()
         logger.info("simula %s: generating %d scenarios for agent %s with %s", workdir_name, count, target.id, sorted({spec.model for _, spec in roles.values()}))
         try:
-            rows = await generate_dataset(cfg, router, resume=False, quiet=True)
+            try:
+                rows = await generate_dataset(cfg, router, resume=False, quiet=True)
+            except ValueError as exc:
+                # The strategies named taxonomy paths that don't exist. Simula keeps taxonomy.json and
+                # strategies.json and reuses them, so drop the bad paths and go on without paying again.
+                if "unknown taxonomy paths" not in str(exc) or not _repair_strategies(output_dir):
+                    raise
+                logger.warning("simula %s: %s; dropped those paths from the strategies and continued", workdir_name, exc)
+                rows = await generate_dataset(cfg, router, resume=False, quiet=True)
         except SystemExit as exc:  # Simula's stop/review gates; never configured here, but never let one kill the server
             raise ScenarioGenerationError(f"Simula stopped early (exit code {exc.code}).") from exc
         except Exception as exc:
@@ -346,9 +429,10 @@ class SimulaScenarioGenerator(ScenarioGenerator):
 
         scenarios = [s for s in (self._to_scenario(row) for row in rows) if s is not None]
         logger.info(
-            "simula %s: %d usable scenarios from %d rows in %.0fs (%d calls, %d in / %d out tokens)",
+            "simula %s: %d usable scenarios from %d rows in %.0fs (%d calls, %d in / %d out tokens%s)",
             workdir_name, len(scenarios), len(rows), time.perf_counter() - started,
             router.tokens["calls"], router.tokens["input_tokens"], router.tokens["output_tokens"],
+            f", ${router.cost:.4f}" if router.cost is not None else "",
         )
         if not scenarios:
             raise ScenarioGenerationError(f"Simula produced no usable scenarios (see artifacts in {output_dir}).")

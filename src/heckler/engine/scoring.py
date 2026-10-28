@@ -6,7 +6,8 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 from statistics import fmean
 
-from ..domain.models import Conversation, ConversationStatus, Evaluation, GroupStats, RunStats, Usage, Verdict
+from ..domain.models import Conversation, ConversationStatus, Evaluation, GroupStats, GuardInfo, RunStats, Usage, Verdict
+from ..guards.metrics import guard_stats
 
 _FINISHED = {ConversationStatus.COMPLETED, ConversationStatus.FAILED, ConversationStatus.CANCELLED}
 
@@ -38,7 +39,7 @@ def _group(conversations: list[Conversation], key: Callable[[Conversation], str]
     return groups
 
 
-def compute_stats(conversations: Iterable[Conversation]) -> RunStats:
+def compute_stats(conversations: Iterable[Conversation], guards: list[GuardInfo] | None = None) -> RunStats:
     items = list(conversations)
     evals = [c.evaluation for c in items if c.evaluation is not None]
 
@@ -50,11 +51,10 @@ def compute_stats(conversations: Iterable[Conversation]) -> RunStats:
         for violation in evaluation.policy_violations:
             severity_counts[violation.severity.value] += 1
 
-    usage = Usage()
+    usage, target_usage = Usage(), Usage()
     for conversation in items:
-        usage.input_tokens += conversation.attacker_usage.input_tokens
-        usage.output_tokens += conversation.attacker_usage.output_tokens
-        usage.calls += conversation.attacker_usage.calls
+        usage.merge(conversation.attacker_usage)
+        target_usage.merge(conversation.target_usage)
 
     passed = sum(held(e) for e in evals)
     # Held but graded 'partial' (no violation, yet e.g. unhelpful); a subset of `passed`.
@@ -79,4 +79,6 @@ def compute_stats(conversations: Iterable[Conversation]) -> RunStats:
         severity_counts=dict(severity_counts),
         by_category=_group(items, lambda c: c.scenario.category),
         attacker_usage=usage,
+        target_usage=target_usage,
+        guards=guard_stats(items, guards or []),
     )

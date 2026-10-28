@@ -2,16 +2,110 @@ import { CircleCheck, CircleX, Lightbulb, MousePointerClick, Quote, ShieldAlert,
 import { AnimatePresence, motion } from 'motion/react'
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { LiveConversation } from '../../hooks/useRunStream'
-import { evidenceMessageIndex } from '../../lib/evidence'
+import { evidenceMessageIndex, violationTurns } from '../../lib/evidence'
 import { cn, convLabel, END_REASON_LABEL, humanize } from '../../lib/format'
+import { policyRules, reasonOf } from '../../lib/guards'
 import { outcomeOf } from '../../lib/outcome'
+import type { GuardDecision, GuardInfo } from '../../lib/types'
 import { OutcomeBadge, ScoreRing, SeverityBadge } from '../status'
 import { Sheet } from '../ui/overlay'
-import { Chip, Eyebrow, Skeleton } from '../ui/primitives'
+import { Chip, Eyebrow, Skeleton, Tooltip } from '../ui/primitives'
 import { Tabs } from '../ui/tabs'
+import { guardTone } from '../../lib/guardMeta'
+import { GuardReasonLine, GuardReasonTooltip } from './GuardReason'
 import { MessageBubble, TypingBubble } from './Transcript'
 
-type Tab = 'report' | 'violations' | 'scenario'
+type Tab = 'report' | 'violations' | 'guards' | 'scenario'
+
+const prob = (p: number | null | undefined) => (p == null ? '–' : p.toFixed(2))
+
+/** Every question's score for one reply, highest first, with the rule text on hover. */
+function RuleScores({ scores, threshold, rules }: { scores: Record<string, number>; threshold: number; rules: string[] }) {
+  const entries = Object.entries(scores).sort((a, b) => b[1] - a[1])
+  if (!entries.length) return null
+  return (
+    <div className="flex flex-wrap gap-1">
+      {entries.map(([key, p]) => {
+        const n = key.startsWith('rule_') ? Number(key.slice(5)) : null
+        return (
+          <Tooltip key={key} content={n ? (rules[n - 1] ?? `Rule ${n}`) : 'Breaks any rule of the policy'}>
+            <span className={cn('inline-flex h-5 items-center gap-1 rounded-md px-1.5 font-mono text-[10.5px] tabular', p >= threshold ? 'bg-fail-soft text-fail' : 'bg-n-100 text-ink-3')}>
+              {n ? `rule ${n}` : 'any rule'} {prob(p)}
+            </span>
+          </Tooltip>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Under an agent reply: each guard's call, with the rule it blocked on. Hover for the full reason. */
+function GuardVerdicts({ decisions, pending, guards, rules }: { decisions: GuardDecision[]; pending: GuardInfo[]; guards: GuardInfo[]; rules: string[] }) {
+  if (!decisions.length && !pending.length) return null
+  return (
+    <div className="mt-1.5 ml-9 flex flex-wrap gap-1">
+      {decisions.map((d) => {
+        const t = guardTone(d)
+        const threshold = guards.find((g) => g.id === d.guard_id)?.threshold ?? 0.5
+        const reason = d.flagged ? reasonOf(d, rules, threshold) : null
+        return (
+          <Tooltip key={d.guard_id} content={<GuardReasonTooltip d={d} rules={rules} threshold={threshold} />}>
+            <span className={cn('inline-flex h-5 items-center gap-1 rounded-full border px-2 text-[10.5px] font-medium', t.cls)}>
+              {t.icon}
+              {d.guard_name} {t.label.toLowerCase()}
+              {reason && <span className="opacity-75">· {reason.label}</span>}
+            </span>
+          </Tooltip>
+        )
+      })}
+      {pending.map((g) => (
+        <span key={g.id} className="inline-flex h-5 items-center gap-1 rounded-full border border-dashed border-line-2 px-2 text-[10.5px] text-ink-3">
+          <span className="shimmer-text">{g.name} checking…</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/** One guard's turn-by-turn calls on this conversation, with every rule's score behind a toggle. */
+function GuardTurns({ g, decisions, badTurns, rules, verdict }: { g: GuardInfo; decisions: GuardDecision[]; badTurns: Set<number>; rules: string[]; verdict: { text: string; cls: string } | null }) {
+  const [all, setAll] = useState(false)
+  return (
+    <section className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate font-display text-[14px] font-semibold">{g.name}</div>
+          <div className="truncate font-mono text-[11px] text-ink-3">
+            {g.model} · blocks at ≥ {g.threshold}
+          </div>
+        </div>
+        {verdict && <span className={cn('shrink-0 text-[12.5px] font-semibold', verdict.cls)}>{verdict.text}</span>}
+      </div>
+      {decisions.length === 0 ? (
+        <p className="text-[12.5px] text-ink-3">No replies checked yet.</p>
+      ) : (
+        <>
+          <ul className="flex flex-col divide-y divide-line">
+            {decisions.map((d) => (
+              <li key={d.turn} className="flex gap-3 py-2.5">
+                <span className="w-12 shrink-0 pt-0.5 font-mono text-[11px] text-ink-3">turn {d.turn}</span>
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  <GuardReasonLine d={d} rules={rules} threshold={g.threshold} />
+                  {badTurns.has(d.turn) && <span className="text-[11px] font-medium text-fail">The evaluator found a violation in this reply</span>}
+                  {all && !d.error && <RuleScores scores={d.rule_scores} threshold={g.threshold} rules={rules} />}
+                </div>
+                <span className="shrink-0 pt-0.5 font-mono text-[10.5px] text-ink-3 tabular">{d.latency_ms} ms</span>
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={() => setAll((v) => !v)} className="w-fit text-[11.5px] font-medium text-ink-3 hover:text-ink">
+            {all ? 'Hide' : 'Show'} every rule’s score
+          </button>
+        </>
+      )}
+    </section>
+  )
+}
 
 function Section({ title, icon, children, className }: { title: string; icon?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -68,9 +162,20 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** Body of the sheet for one conversation. Keyed by conversation id, so its state resets per chat. */
-function SheetBody({ c, targetName, maxTurns }: { c: LiveConversation; targetName: string; maxTurns: number }) {
+function SheetBody({ c, guards, policy, targetName, maxTurns }: { c: LiveConversation; guards: GuardInfo[]; policy: string | null; targetName: string; maxTurns: number }) {
   const evaluation = c.evaluation
   const violations = useMemo(() => evaluation?.policy_violations ?? [], [evaluation])
+  const byTurn = useMemo(() => {
+    const map = new Map<number, GuardDecision[]>()
+    // live decisions arrive in whatever order the guards answer; show them in the run's guard order
+    const rank = (id: string) => guards.findIndex((g) => g.id === id)
+    const sorted = [...c.guard_decisions].sort((a, b) => rank(a.guard_id) - rank(b.guard_id))
+    for (const d of sorted) map.set(d.turn, [...(map.get(d.turn) ?? []), d])
+    return map
+  }, [c.guard_decisions, guards])
+  const badTurns = useMemo(() => violationTurns(c.messages, violations), [c.messages, violations])
+  const graded = !!evaluation
+  const rules = useMemo(() => policyRules(policy), [policy])
   const [tab, setTab] = useState<Tab>(evaluation ? (violations.length ? 'violations' : 'report') : c.status === 'evaluating' ? 'report' : 'scenario')
   const [active, setActive] = useState<number | null>(null)
   const [flashMsg, setFlashMsg] = useState<number | null>(null)
@@ -152,6 +257,14 @@ function SheetBody({ c, targetName, maxTurns }: { c: LiveConversation; targetNam
                   onSelectViolation={openViolation}
                   activeViolation={active}
                 />
+                {m.role === 'target' && guards.length > 0 && (
+                  <GuardVerdicts
+                    guards={guards}
+                    rules={rules}
+                    decisions={byTurn.get(m.turn) ?? []}
+                    pending={['running', 'evaluating'].includes(c.status) ? guards.filter((g) => !(byTurn.get(m.turn) ?? []).some((d) => d.guard_id === g.id)) : []}
+                  />
+                )}
               </div>
             ))}
             <AnimatePresence>{typing && <TypingBubble key={typing + c.messages.length} side={typing} targetName={targetName} />}</AnimatePresence>
@@ -178,6 +291,7 @@ function SheetBody({ c, targetName, maxTurns }: { c: LiveConversation; targetNam
           items={[
             { value: 'report', label: 'Report' },
             { value: 'violations', label: 'Policy violations', count: evaluation ? violations.length : undefined },
+            ...(guards.length ? [{ value: 'guards' as const, label: 'Guards' }] : []),
             { value: 'scenario', label: 'Scenario' },
           ]}
         />
@@ -292,6 +406,25 @@ function SheetBody({ c, targetName, maxTurns }: { c: LiveConversation; targetNam
               <Pending c={c} />
             ))}
 
+          {tab === 'guards' && (
+            <div className="flex flex-col gap-5">
+              <p className="text-[12.5px] leading-relaxed text-ink-3">
+                Each guard scored every reply against each rule of the guard policy, without changing the conversation. Decision models give no reasoning, so the reason shown is the rule they scored highest. A reply is blocked when that score reaches the guard’s threshold.
+              </p>
+              {guards.map((g) => {
+                const mine = c.guard_decisions.filter((d) => d.guard_id === g.id).sort((a, b) => a.turn - b.turn)
+                const flagged = mine.some((d) => d.flagged)
+                const violated = evaluation ? evaluation.broken || violations.length > 0 : false
+                const verdict = !graded || !mine.length
+                  ? null
+                  : violated
+                    ? flagged ? { text: 'Caught it', cls: 'text-pass' } : { text: 'Missed it', cls: 'text-fail' }
+                    : flagged ? { text: 'False alarm', cls: 'text-warn' } : { text: 'Correctly allowed', cls: 'text-pass' }
+                return <GuardTurns key={g.id} g={g} decisions={mine} badTurns={badTurns} rules={rules} verdict={verdict} />
+              })}
+            </div>
+          )}
+
           {tab === 'scenario' &&
             (s ? (
               <div className="flex flex-col gap-5">
@@ -363,11 +496,15 @@ function Pending({ c }: { c: LiveConversation }) {
 
 export function ConversationSheet({
   conversation: c,
+  guards = [],
+  guardPolicy = null,
   targetName,
   maxTurns,
   onClose,
 }: {
   conversation: LiveConversation | null
+  guards?: GuardInfo[]
+  guardPolicy?: string | null
   targetName: string
   maxTurns: number
   onClose: () => void
@@ -399,7 +536,7 @@ export function ConversationSheet({
         )
       }
     >
-      {c && <SheetBody key={c.id} c={c} targetName={targetName} maxTurns={maxTurns} />}
+      {c && <SheetBody key={c.id} c={c} guards={guards} policy={guardPolicy} targetName={targetName} maxTurns={maxTurns} />}
     </Sheet>
   )
 }

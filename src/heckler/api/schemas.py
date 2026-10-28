@@ -12,6 +12,8 @@ from ..domain.models import (
     ConversationStatus,
     EndReason,
     EvaluatorConnection,
+    GuardConnection,
+    GuardInfo,
     OpenAIChatConnection,
     Run,
     RunConfig,
@@ -35,6 +37,8 @@ class TargetCreate(BaseModel):
     system_prompt: str = Field(min_length=1)
     connection: TargetConnection
     evaluator: EvaluatorConnection | None = None
+    guards: list[GuardConnection] = Field(default_factory=list)
+    guard_policy: str | None = None
 
 
 class TargetOut(BaseModel):
@@ -44,6 +48,8 @@ class TargetOut(BaseModel):
     system_prompt: str
     connection: dict[str, Any]
     evaluator: dict[str, Any] | None
+    guards: list[dict[str, Any]]
+    guard_policy: str | None
     created_at: datetime
 
     @classmethod
@@ -56,6 +62,9 @@ class TargetOut(BaseModel):
         if target.evaluator is not None:
             evaluator = target.evaluator.model_dump(mode="json")
             evaluator["api_key"] = MASK if target.evaluator.api_key else None
+        guards = []
+        for guard in target.guards:
+            guards.append(guard.model_dump(mode="json") | {"api_key": MASK if guard.api_key else None})
         return cls(
             id=target.id,
             name=target.name,
@@ -63,6 +72,8 @@ class TargetOut(BaseModel):
             system_prompt=target.system_prompt,
             connection=connection,
             evaluator=evaluator,
+            guards=guards,
+            guard_policy=target.guard_policy,
             created_at=target.created_at,
         )
 
@@ -85,9 +96,31 @@ class ConnectionTest(TargetCreate):
     target_id: str | None = None
 
 
+class GuardProbeResult(ProbeResult):
+    guard_id: str
+    name: str
+    # What the guard decided on a harmless sample reply: anything but False is worth a look.
+    flagged: bool | None = None
+
+
 class ConnectionTestResult(BaseModel):
     target: ProbeResult
     evaluator: ProbeResult | None
+    guards: list[GuardProbeResult] = Field(default_factory=list)
+
+
+class GuardPolicyRequest(BaseModel):
+    """Draft a guard policy from a system prompt with the agent's evaluator model (or, with `offline`, the
+    scripted demo). With `target_id`, a masked or missing evaluator key comes from that saved agent."""
+
+    system_prompt: str = Field(min_length=1)
+    evaluator: EvaluatorConnection | None = None
+    target_id: str | None = None
+    offline: bool = False
+
+
+class GuardPolicyOut(BaseModel):
+    policy: str
 
 
 # ---------------------------------------------------------------------------------------------- runs
@@ -105,6 +138,8 @@ class ExampleRunCreate(BaseModel):
     system_prompt: str = Field(min_length=1)
     num_scenarios: int = Field(default=6, ge=1)
     max_turns: int = Field(default=4, ge=1)
+    # Screen the demo with the two scripted offline guards.
+    guards: bool = True
 
 
 class RunSummary(BaseModel):
@@ -202,13 +237,18 @@ class RunDetail(BaseModel):
     finished_at: datetime | None
     example: bool
     is_active: bool
+    guards: list[GuardInfo]
+    guard_policy: str | None
     conversations: list[ConversationSummary]
 
     @classmethod
     def of(cls, run: Run, conversations: list[Conversation], is_active: bool) -> "RunDetail":
         return cls(
             **run.model_dump(
-                include={"id", "target_id", "target_name", "status", "config", "stats", "error", "created_at", "started_at", "finished_at", "example"}
+                include={
+                    "id", "target_id", "target_name", "status", "config", "stats", "error", "created_at", "started_at", "finished_at", "example",
+                    "guards", "guard_policy",
+                }
             ),
             is_active=is_active,
             conversations=[ConversationSummary.of(c) for c in conversations],

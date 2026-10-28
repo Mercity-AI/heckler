@@ -29,6 +29,12 @@ def is_openrouter(base_url: str) -> bool:
     return "openrouter.ai" in base_url
 
 
+def usage_cost(usage: object) -> float | None:
+    """The USD cost OpenRouter puts in every response's `usage` (other endpoints don't report one)."""
+    cost = getattr(usage, "cost", None)
+    return float(cost) if isinstance(cost, (int, float)) else None
+
+
 def _get_lock() -> asyncio.Lock:
     # one lock per event loop, so concurrent first calls share a single fetch
     global _lock, _lock_loop

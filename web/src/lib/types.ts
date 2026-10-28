@@ -54,6 +54,30 @@ export interface EvaluatorConnection {
   temperature?: number | null
 }
 
+/**
+ * A decision model (Jev, Clef, Laya…) that screens each agent reply against the guard policy: through
+ * OpenRouter's Decisions API, or any endpoint serving `POST {base_url}/v1/systemone`.
+ */
+export interface GuardConnection {
+  id?: string
+  name: string
+  /** 'fake': a scripted offline guard for the demo. */
+  kind: 'systemone' | 'fake'
+  base_url: string
+  model: string
+  /** "***" when a key is stored; send "***" back to keep it. null on OpenRouter: uses the evaluator's OpenRouter key. */
+  api_key?: string | null
+  /** Blocks when the highest probability across its questions reaches this. */
+  threshold?: number
+}
+
+export interface GuardInfo {
+  id: string
+  name: string
+  model: string
+  threshold: number
+}
+
 export interface Target {
   id: string
   name: string
@@ -61,6 +85,8 @@ export interface Target {
   system_prompt: string
   connection: TargetConnection
   evaluator: EvaluatorConnection | null
+  guards: (GuardConnection & { id: string })[]
+  guard_policy: string | null
   created_at: string
 }
 
@@ -70,11 +96,21 @@ export interface TargetCreate {
   system_prompt: string
   connection: TargetConnection
   evaluator?: EvaluatorConnection | null
+  guards?: GuardConnection[]
+  guard_policy?: string | null
+}
+
+export interface GuardProbeResult extends ProbeResult {
+  guard_id: string
+  name: string
+  /** Its call on a harmless sample reply: anything but false is worth a look. */
+  flagged: boolean | null
 }
 
 export interface ConnectionTestResult {
   target: ProbeResult
   evaluator: ProbeResult | null
+  guards: GuardProbeResult[]
 }
 
 export interface ProbeResult {
@@ -136,6 +172,27 @@ export interface Evaluation {
   summary: string
 }
 
+/** One guard's call on one agent reply. */
+export interface GuardDecision {
+  guard_id: string
+  guard_name: string
+  turn: number
+  /** true: would have blocked the reply. null: the call failed. */
+  flagged: boolean | null
+  /** Highest probability across its questions, compared with the threshold. */
+  probability: number | null
+  /** "rule_1" | "rule_2" | … → probability the reply breaks that rule ("violates_policy" on older runs). */
+  rule_scores: Record<string, number>
+  /** Numbers of the rules at or above the threshold. */
+  violated_rules: string[]
+  latency_ms: number
+  input_tokens: number
+  output_tokens: number
+  /** USD, when the endpoint reports it (OpenRouter does). */
+  cost: number | null
+  error: string | null
+}
+
 export interface Usage {
   input_tokens: number
   output_tokens: number
@@ -154,6 +211,7 @@ export interface Conversation {
   evaluation: Evaluation | null
   error: string | null
   attacker_usage: Usage
+  guard_decisions: GuardDecision[]
   started_at: string | null
   finished_at: string | null
 }
@@ -166,6 +224,8 @@ export interface RunConfig {
   focus: string | null
   reuse_scenarios_from_run_id: string | null
   scenarios: Scenario[] | null
+  /** Which of the agent's guards screen the run. null: all of them. */
+  guard_ids?: string[] | null
 }
 
 export interface GroupStats {
@@ -175,6 +235,44 @@ export interface GroupStats {
   broken: number
   with_violations: number
   mean_score: number | null
+}
+
+/** How one guard did against the evaluator's grades. Conversation level unless prefixed `turn_`. */
+export interface GuardStats {
+  guard_id: string
+  name: string
+  model: string
+  screened: number
+  flagged_replies: number
+  errors: number
+  tp: number
+  fp: number
+  fn: number
+  tn: number
+  precision: number | null
+  recall: number | null
+  f1: number | null
+  accuracy: number | null
+  false_positive_rate: number | null
+  turn_tp: number
+  turn_fp: number
+  turn_fn: number
+  turn_tn: number
+  turn_precision: number | null
+  turn_recall: number | null
+  /** Violating chats where it blocked the first violating reply (or earlier). */
+  stopped: number
+  stoppable: number
+  stop_rate: number | null
+  /** Threshold-free: chance a violating chat scores above a clean one. */
+  auc: number | null
+  /** The threshold that would have maximised conversation-level F1, and that F1. */
+  best_threshold: number | null
+  best_f1: number | null
+  mean_latency_ms: number | null
+  usage: Usage
+  /** USD, summed over calls whose endpoint reported a cost. */
+  cost: number | null
 }
 
 export interface RunStats {
@@ -195,6 +293,7 @@ export interface RunStats {
   severity_counts: Record<string, number>
   by_category: Record<string, GroupStats>
   attacker_usage: Usage
+  guards?: Record<string, GuardStats>
 }
 
 export interface RunSummary {
@@ -247,6 +346,8 @@ export interface RunDetail {
   finished_at: string | null
   example: boolean
   is_active: boolean
+  guards: GuardInfo[]
+  guard_policy: string | null
   conversations: ConversationSummary[]
 }
 

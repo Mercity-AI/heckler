@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from fastapi import Request
 
+from ..calllog import CallLog
 from ..config import Settings
 from ..engine.orchestrator import RunOrchestrator
 from ..events import EventBus
@@ -50,6 +51,7 @@ class Container:
             providers=providers,
             scenario_generator=scenario_generator,
             target_factory=lambda target: build_target_client(target, settings),
+            call_log=CallLog(settings.call_log_dir) if settings.call_log_dir else None,
         )
         auth = None
         if settings.clerk_publishable_key:

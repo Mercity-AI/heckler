@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # Artificial delay per call of the offline `fake` provider, so keyless demos look live.
     fake_latency_seconds: float = 0.4
 
+    # Local debugging only, never on a shared server: write every model call (prompts, outputs, tokens, cost) as JSON lines to
+    # `<dir>/<run_id>.jsonl`, in plaintext. Unset (the default): nothing is written. See heckler.calllog.
+    call_log_dir: Path | None = None
+
     # CORS for the web UI; comma-separated origins.
     cors_origins: str = "*"
 

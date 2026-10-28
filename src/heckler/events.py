@@ -27,6 +27,8 @@ class EventType:
     CONVERSATION_EVALUATING = "conversation.evaluating"
     CONVERSATION_COMPLETED = "conversation.completed"
     CONVERSATION_FAILED = "conversation.failed"
+    # One guard model's decision on one agent reply.
+    GUARD_DECISION = "conversation.guard"
     STATS = "run.stats"
     RUN_FINISHED = "run.finished"
 

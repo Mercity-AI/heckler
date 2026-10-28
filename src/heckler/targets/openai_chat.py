@@ -9,8 +9,8 @@ import openai
 from openai import AsyncOpenAI
 
 from ..domain.models import ChatMessage, OpenAIChatConnection
-from ..llm.openrouter import clamp_max_tokens
-from .base import TargetClient, TargetError
+from ..llm.openrouter import clamp_max_tokens, usage_cost
+from .base import TargetClient, TargetError, TargetReply
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,9 @@ class OpenAIChatTarget(TargetClient):
         )
 
     async def reply(self, history: list[ChatMessage]) -> str:
+        return (await self.respond(history)).text
+
+    async def respond(self, history: list[ChatMessage]) -> TargetReply:
         messages: list[dict[str, Any]] = []
         if self._conn.send_system_prompt:
             messages.append({"role": "system", "content": self._system_prompt})
@@ -58,7 +61,12 @@ class OpenAIChatTarget(TargetClient):
         if not text:
             hint = " (hit max_tokens while reasoning; raise connection.max_tokens)" if choice.finish_reason == "length" else ""
             raise TargetError(f"Target returned an empty reply{hint}.")
-        return text
+        return TargetReply(
+            text=text,
+            input_tokens=getattr(usage, "prompt_tokens", None),
+            output_tokens=getattr(usage, "completion_tokens", None),
+            cost=usage_cost(usage),
+        )
 
     async def aclose(self) -> None:
         await self._client.close()

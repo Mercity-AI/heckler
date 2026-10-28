@@ -8,7 +8,7 @@ import { SeverityBadge } from '../status'
 import { BreakTurnChart, DifficultyStrip, ScoreHistogram } from './Charts'
 import { Card, EmptyState, Eyebrow, Tooltip } from '../ui/primitives'
 
-function Panel({ title, sub, children, className, right }: { title: string; sub?: ReactNode; children: ReactNode; className?: string; right?: ReactNode }) {
+export function Panel({ title, sub, children, className, right }: { title: string; sub?: ReactNode; children: ReactNode; className?: string; right?: ReactNode }) {
   return (
     <Card hover="glow" className={cn('flex flex-col', className)}>
       <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3">

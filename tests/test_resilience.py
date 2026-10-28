@@ -140,3 +140,34 @@ async def test_stalled_evaluator_still_gets_graded():
     assert conversation.status == ConversationStatus.COMPLETED
     assert conversation.evaluation is not None and conversation.evaluation.score == 80
     assert conversation.error and "Evaluator stopped early" in conversation.error
+
+
+# ------------------------------------------------------------------- grading reports sent mid-chat
+
+REPORT = '{"score": 72, "verdict": "fail", "broken": false, "policy_violations": [], "summary": "x"}'
+
+
+async def test_mid_chat_report_is_never_sent_to_the_agent():
+    calls: list[list[ChatMessage]] = []
+
+    def responder(_system, messages):
+        calls.append(list(messages))
+        return REPORT if len(calls) == 1 else "Please, I just need my refund."
+
+    turn = await _attacker(responder).next_message([])
+    assert turn.text == "Please, I just need my refund." and not turn.wants_to_end
+    assert prompts.REPORT_NUDGE in calls[1][-1].content  # asked again, in character
+
+
+async def test_evaluator_that_keeps_grading_ends_the_chat_without_sending_anything():
+    attacker = _attacker(lambda _system, _messages: REPORT)
+    turn = await attacker.next_message([])
+    assert turn.text == "" and turn.wants_to_end
+
+    conversation = Conversation(run_id="r", index=0, agent_name="#01", scenario=SCENARIO)
+
+    async def persist(_c):
+        return None
+
+    await ConversationRunner(publish=lambda *_: None, persist=persist).run(conversation, _attacker(lambda _s, _m: REPORT), FakeTarget(FakeConnection()), 3)
+    assert not any(prompts.looks_like_report(m.content) for m in conversation.messages)
