@@ -101,3 +101,65 @@ async def test_simula_generates_scenarios_through_provider_layer(settings, leaky
     assert {"taxonomy", "strategies", "meta_prompts", "generating"} <= set(progress)
     assert result.usage["calls"] > 0
     assert (settings.simula_dir / "t1" / "dataset.final.jsonl").exists()
+
+
+def test_taxonomy_node_names_never_contain_path_separators():
+    # DeepSeek named a node "...false authority/urgency": Simula split it at "/" and failed the run.
+    from simula.taxonomy import _child, _invalid_strategy_paths
+
+    from heckler.scenarios.simula_generator import _clean_node_names
+
+    name = "Persistence, emotional pressure, and false authority/urgency"
+    reply = {"children": [{"name": name, "description": "pushes with u.s. law / deadlines"}, {"name": "Plain"}]}
+
+    def tree(children):
+        return {"factors": [{"name": "pressure_tactic", "path": ["pressure_tactic"], "children": [_child(c, 1, ["pressure_tactic"]) for c in children]}]}
+
+    def roots(t):
+        return [{"id": "s", "taxonomy_roots": ["/".join(n["path"]) for n in t["factors"][0]["children"]]}]
+
+    raw = tree(reply["children"])
+    assert _invalid_strategy_paths(roots(raw), raw)  # the bug, as Simula sees it
+
+    cleaned = _clean_node_names(reply)
+    assert cleaned["children"][0]["name"] == "Persistence, emotional pressure, and false authority or urgency"
+    assert cleaned["children"][0]["description"] == reply["children"][0]["description"]  # only names change
+    assert _clean_node_names({"name": "Acct. takeover / e.g. SIM swap"}) == {"name": "Acct takeover or eg SIM swap"}
+    assert _clean_node_names({"name": "Refund pressure / "}) == {"name": "Refund pressure"}
+    assert _clean_node_names({"name": "Angry Customer Error"}) == {"name": "Angry Customer Error"}
+    fixed = tree(cleaned["children"])
+    assert _invalid_strategy_paths(roots(fixed), fixed) == []
+
+
+async def test_simula_drops_unknown_strategy_paths_without_rebuilding_the_taxonomy(settings, leaky_target):
+    # The model names a path that doesn't exist, even after Simula's own retry: drop it and go on,
+    # reusing the taxonomy already paid for.
+    from heckler.testing.fakes import simula_responder
+
+    seen = {"children": 0}
+
+    def responder(system, messages):
+        prompt = messages[-1].content
+        if 'Return JSON:\n{"strategies"' in prompt:
+            return json.dumps({"strategies": [
+                {"id": "made_up", "description": "x", "taxonomy_roots": ["pressure_tactic/does not exist"], "weight": 1.0},
+                {"id": "mixed", "description": "y", "taxonomy_roots": ["pressure_tactic", "nope/nope"], "never_combine": [["nope", "pressure_tactic"]], "weight": 1.0},
+            ]})
+        if 'Return JSON:\n{"children"' in prompt:
+            seen["children"] += 1
+        return simula_responder(system, messages)
+
+    fake = FakeLLMProvider([responder])
+    models = {role: (fake, ModelSpec(provider="fake", model="fake-simula", max_tokens=n)) for role, n in ROLE_MAX_TOKENS.items()}
+    generator = SimulaScenarioGenerator(output_root=settings.simula_dir)
+    result = await generator.generate(target=leaky_target, count=5, focus=None, workdir_name="t2", models=models)
+
+    assert result.scenarios
+    strategies = json.loads((settings.simula_dir / "t2" / "strategies.json").read_text(encoding="utf-8"))["strategies"]
+    assert [(s["id"], s["taxonomy_roots"], s["never_combine"]) for s in strategies] == [("mixed", ["pressure_tactic"], [])]
+    children_calls = seen["children"]
+    assert children_calls > 0
+    # the taxonomy was built once: a rebuild would have doubled the expansion calls
+    seen["children"] = 0
+    await generator.generate(target=leaky_target, count=5, focus=None, workdir_name="t3", models=models)
+    assert seen["children"] == children_calls

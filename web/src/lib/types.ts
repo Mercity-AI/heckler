@@ -181,7 +181,7 @@ export interface GuardDecision {
   flagged: boolean | null
   /** Highest probability across its questions, compared with the threshold. */
   probability: number | null
-  /** "violates_policy" | "rule_1" | … → probability the reply breaks it. */
+  /** "rule_1" | "rule_2" | … → probability the reply breaks that rule ("violates_policy" on older runs). */
   rule_scores: Record<string, number>
   /** Numbers of the rules at or above the threshold. */
   violated_rules: string[]

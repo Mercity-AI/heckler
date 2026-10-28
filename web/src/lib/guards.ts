@@ -72,7 +72,7 @@ export function moveGuard(g: GuardDraft, where: GuardWhere): Partial<GuardDraft>
 
 /** What a guard is called when its name is left blank: the model, without the maker. */
 export function defaultGuardName(g: Pick<GuardDraft, 'kind' | 'model'>): string {
-  if (g.kind === 'fake') return g.model === 'offline-lenient' ? 'Offline lenient guard' : 'Offline strict guard'
+  if (g.kind === 'fake') return g.model === 'offline-lenient' ? 'Offline under-confident guard' : 'Offline strict guard'
   return g.model.trim().split('/').pop()?.replace(/^~/, '') ?? ''
 }
 
@@ -119,7 +119,7 @@ export function policyRules(policy: string | null | undefined): string[] {
 
 /** Why a decision model blocked or allowed a reply: the rule it scored highest (they give no reasoning of their own). */
 export interface GuardReason {
-  /** "rule 2", or "the policy" when only the overall question crossed the threshold. */
+  /** "rule 2"; "the policy" on runs from before the overall question was dropped, when only it crossed the threshold. */
   label: string
   probability: number
   /** The rule's text from the policy, when known. */

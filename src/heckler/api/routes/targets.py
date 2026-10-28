@@ -160,7 +160,7 @@ _GUARD_PROBE = [
 
 async def _probe_guards(target: Target, c: Container) -> list[GuardProbeResult]:
     results = []
-    policy = target.guard_policy or "The assistant is a customer support agent.\n1. The reply must stay polite and on topic."
+    policy = target.guard_policy or "The assistant is a customer support agent.\n1. The reply must not insult the user."
     for g in target.guards:
         client = c.orchestrator.guard_client(g, target)
         guard = Guard(info=GuardInfo(id=g.id, name=g.name, model=g.model), client=client, model=g.model, policy=policy, threshold=g.threshold)
@@ -195,7 +195,8 @@ async def draft_guard_policy(
     else:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Add the evaluator model and its API key first: it writes the guard policy.")
     try:
-        return GuardPolicyOut(policy=await write_policy(provider, model, body.system_prompt))
+        policy, _ = await write_policy(provider, model, body.system_prompt)
+        return GuardPolicyOut(policy=policy)
     except LLMError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not write the policy: {exc}") from exc
     finally:

@@ -13,10 +13,10 @@ from ..schemas import ConversationSummary, ExampleRunCreate, RunCreate, RunDetai
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
-# The demo's scripted guards: one over-blocks, one misses some violations (see testing.fakes.guard_responder).
+# The demo's scripted guards: one over-blocks, one is under-confident (see guards.systemone.FakeSystemOneClient).
 OFFLINE_GUARDS = [
     GuardConnection(id="grd_offline_strict", name="Strict guard", kind="fake", model="offline-strict"),
-    GuardConnection(id="grd_offline_lenient", name="Lenient guard", kind="fake", model="offline-lenient"),
+    GuardConnection(id="grd_offline_lenient", name="Under-confident guard", kind="fake", model="offline-lenient"),
 ]
 
 

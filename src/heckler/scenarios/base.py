@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ..domain.models import ModelSpec, Scenario, Target
+from ..domain.models import ModelSpec, Scenario, ScenarioCall, Target
 from ..llm.base import LLMProvider
 
 
@@ -29,7 +29,8 @@ class GeneratorCall(BaseModel):
     duration_ms: int | None = None
     input_tokens: int = 0
     output_tokens: int = 0
-    # Trimmed previews; the full text lives in the run's Simula artifacts.
+    cost: float | None = None
+    # Trimmed previews for the live view; the full text goes to the local call log as ScenarioCall records.
     prompt: str = ""
     output: str = ""
     error: str | None = None
@@ -69,5 +70,9 @@ class ScenarioGenerator(ABC):
         workdir_name: str,
         models: RoleModels,
         on_progress: ProgressCallback | None = None,
+        call_log: list[ScenarioCall] | None = None,
     ) -> ScenarioSet:
-        """Produce up to `count` scenarios tailored to `target`'s system prompt, with one model per Simula role."""
+        """Produce up to `count` scenarios tailored to `target`'s system prompt, with one model per Simula role.
+
+        Every model call is appended to `call_log` in full as it finishes, so the caller keeps them even
+        when generation fails part way."""

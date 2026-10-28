@@ -255,11 +255,26 @@ class Usage(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     calls: int = 0
+    # USD, summed over the calls whose provider reported a cost (OpenRouter reports it on every call).
+    # None: no call reported one. `cost_calls` says how many did, so a partial total can be spotted.
+    cost: float | None = None
+    cost_calls: int = 0
 
-    def add(self, input_tokens: int, output_tokens: int) -> None:
+    def add(self, input_tokens: int, output_tokens: int, cost: float | None = None) -> None:
         self.input_tokens += input_tokens
         self.output_tokens += output_tokens
         self.calls += 1
+        if cost is not None:
+            self.cost = round((self.cost or 0.0) + cost, 8)
+            self.cost_calls += 1
+
+    def merge(self, other: "Usage") -> None:
+        self.input_tokens += other.input_tokens
+        self.output_tokens += other.output_tokens
+        self.calls += other.calls
+        if other.cost is not None:
+            self.cost = round((self.cost or 0.0) + other.cost, 8)
+        self.cost_calls += other.cost_calls
 
 
 class GuardDecision(BaseModel):
@@ -272,7 +287,7 @@ class GuardDecision(BaseModel):
     flagged: bool | None
     # Highest probability across the guard's questions; compared with its threshold.
     probability: float | None = None
-    # Question id ("violates_policy", "rule_1"...) -> probability that the reply breaks it.
+    # Question id ("rule_1", "rule_2"...) -> probability that the reply breaks that rule.
     rule_scores: dict[str, float] = Field(default_factory=dict)
     # Numbers of the rules at or above the threshold.
     violated_rules: list[str] = Field(default_factory=list)
@@ -280,6 +295,29 @@ class GuardDecision(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     cost: float | None = None
+    error: str | None = None
+
+
+class ScenarioCall(BaseModel):
+    """One model call made while generating a run's scenarios, in full (written to the local call log)."""
+
+    id: int
+    task: str  # Simula task, e.g. node_expansion, generate, semantic_critic
+    phase: str
+    role: str  # strategic | bulk | critic
+    model: str
+    status: Literal["done", "error"]
+    started_at: datetime
+    duration_ms: int = 0
+    system: str = ""
+    # Everything sent after the system prompt: the prompt, plus the model's earlier reply and the repair
+    # request when its JSON had to be retried.
+    messages: list[ChatMessage] = Field(default_factory=list)
+    output: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost: float | None = None
+    stop_reason: str | None = None
     error: str | None = None
 
 
@@ -295,6 +333,8 @@ class Conversation(BaseModel):
     evaluation: Evaluation | None = None
     error: str | None = None
     attacker_usage: Usage = Field(default_factory=Usage)
+    # The agent under test: its own model calls in this conversation (when its endpoint reports usage).
+    target_usage: Usage = Field(default_factory=Usage)
     guard_decisions: list[GuardDecision] = Field(default_factory=list)
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -407,6 +447,7 @@ class RunStats(BaseModel):
     severity_counts: dict[str, int] = Field(default_factory=dict)
     by_category: dict[str, GroupStats] = Field(default_factory=dict)
     attacker_usage: Usage = Field(default_factory=Usage)
+    target_usage: Usage = Field(default_factory=Usage)
     # Keyed by guard id, in the order the run lists its guards.
     guards: dict[str, GuardStats] = Field(default_factory=dict)
 
@@ -422,6 +463,9 @@ class Run(BaseModel):
     # The guard models screening this run, and the policy they were given.
     guards: list[GuardInfo] = Field(default_factory=list)
     guard_policy: str | None = None
+    # Calls made once per run, outside any conversation: scenario generation, and writing the guard policy.
+    scenario_usage: Usage = Field(default_factory=Usage)
+    policy_usage: Usage = Field(default_factory=Usage)
     error: str | None = None
     # The home page's throwaway demo: runs against an unsaved agent and is left out of run listings.
     example: bool = False

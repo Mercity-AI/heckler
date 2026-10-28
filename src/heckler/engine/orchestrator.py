@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from ..agents.attacker import AttackerAgent
+from ..calllog import CallLog
 from ..config import Settings
 from ..domain.models import (
     AgentProfile,
@@ -26,7 +27,9 @@ from ..domain.models import (
     RunConfig,
     RunStatus,
     Scenario,
+    ScenarioCall,
     Target,
+    Usage,
     utcnow,
 )
 from ..events import EventBus, EventType
@@ -69,6 +72,21 @@ class EvaluatorModels:
             await client.aclose()
 
 
+def _cost_summary(run: Run) -> str:
+    """Reported USD cost by role, for the run's last log line ("n/a" where no call reported a cost)."""
+    s = run.stats
+    parts = {
+        "scenarios": run.scenario_usage.cost,
+        "policy": run.policy_usage.cost,
+        "evaluator": s.attacker_usage.cost,
+        "agent": s.target_usage.cost,
+        "guards": sum(g.cost for g in s.guards.values() if g.cost is not None) if any(g.cost is not None for g in s.guards.values()) else None,
+    }
+    known = [v for v in parts.values() if v is not None]
+    total = f"${sum(known):.4f}" if known else "n/a"
+    return total + " (" + ", ".join(f"{k} {'n/a' if v is None else f'${v:.4f}'}" for k, v in parts.items()) + ")"
+
+
 def evaluator_label(index: int) -> str:
     return f"#{index + 1:02d}"
 
@@ -83,8 +101,10 @@ class RunOrchestrator:
         providers: ProviderRegistry,
         scenario_generator: ScenarioGenerator,
         target_factory: TargetFactory,
+        call_log: CallLog | None = None,
     ) -> None:
         self._settings = settings
+        self._call_log = call_log
         self._repo = repository
         self._bus = bus
         self._providers = providers
@@ -277,10 +297,19 @@ class RunOrchestrator:
             s = run.stats
             logger.info(
                 "run %s finished: %s; %d/%d evaluated, %d passed, %d failed, %d broken, %d errored, mean score %s, "
-                "evaluator tokens %d in / %d out%s",
+                "evaluator tokens %d in / %d out, reported cost %s%s",
                 run.id, run.status, s.evaluated, s.total, s.passed, s.failed, s.broken, s.errored, s.mean_score,
-                s.attacker_usage.input_tokens, s.attacker_usage.output_tokens, f"; error: {run.error}" if run.error else "",
+                s.attacker_usage.input_tokens, s.attacker_usage.output_tokens, _cost_summary(run), f"; error: {run.error}" if run.error else "",
             )
+            if self._call_log is not None:
+                self._call_log.write(
+                    run.id, "run_summary", status=run.status, target_id=target.id, target_name=target.name,
+                    agent_model=getattr(target.connection, "model", target.connection.kind), evaluator_model=models.attacker.model,
+                    scenario_model=next(iter(models.simula.values()))[1].model, config=run.config.model_dump(mode="json", exclude={"scenarios"}),
+                    guards=[g.model_dump(mode="json") for g in run.guards], cost=_cost_summary(run),
+                    scenario_usage=run.scenario_usage.model_dump(), policy_usage=run.policy_usage.model_dump(),
+                    stats=run.stats.model_dump(mode="json"), error=run.error,
+                )
             self._publish(run.id, EventType.RUN_FINISHED, {"status": run.status, "stats": run.stats.model_dump(mode="json"), "error": run.error})
             self._bus.close(run.id)
 
@@ -289,7 +318,13 @@ class RunOrchestrator:
         if not models.guards:
             return []
         if not run.guard_policy:
-            run.guard_policy = await write_policy(models.provider, models.attacker.model, target.system_prompt)
+            run.guard_policy, response = await write_policy(models.provider, models.attacker.model, target.system_prompt)
+            run.policy_usage.add(response.input_tokens, response.output_tokens, response.cost)
+            if self._call_log is not None:
+                self._call_log.write(
+                    run.id, "guard_policy", model=response.model, input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens, cost=response.cost, output=run.guard_policy,
+                )
             await self._repo.save_run(run)
             logger.info("run %s: wrote a %d-char guard policy from the system prompt", run.id, len(run.guard_policy))
         return [
@@ -314,10 +349,24 @@ class RunOrchestrator:
         async def on_progress(progress: ScenarioProgress) -> None:
             self._publish(run.id, EventType.SCENARIOS_PROGRESS, progress.model_dump())
 
-        result = await self._generator.generate(
-            target=target, count=config.num_scenarios, focus=config.focus, workdir_name=run.id, on_progress=on_progress,
-            models=models.simula,
-        )
+        calls: list[ScenarioCall] = []
+        try:
+            result = await self._generator.generate(
+                target=target, count=config.num_scenarios, focus=config.focus, workdir_name=run.id, on_progress=on_progress,
+                models=models.simula, call_log=calls,
+            )
+        finally:
+            # Kept even when generation fails part way: those calls were made, and paid for.
+            if calls:
+                run.scenario_usage = Usage()
+                for call in calls:
+                    run.scenario_usage.add(call.input_tokens, call.output_tokens, call.cost)
+                if self._call_log is not None:
+                    # calls finish out of order (Simula runs several at once); log them in the order they started
+                    for call in sorted(calls, key=lambda c: c.id):
+                        fields = call.model_dump(mode="json")
+                        fields["simula_role"] = fields.pop("role")  # strategic | bulk | critic; `role` is the log's own
+                        self._call_log.write(run.id, "scenario", **fields)
         run.taxonomy = result.taxonomy
         await self._repo.save_run(run)
         return result.scenarios
@@ -335,10 +384,17 @@ class RunOrchestrator:
         limit = min(run.config.concurrency or len(conversations), self._settings.max_concurrency)
         limiter = asyncio.Semaphore(max(1, limit))
         stats_lock = asyncio.Lock()
+        log = self._call_log
+
+        def log_call(role: str, conversation: Conversation, **fields: object) -> None:
+            if log is not None:
+                log.write(run.id, role, conversation_id=conversation.id, conversation=conversation.agent_name, **fields)
+
         runner = ConversationRunner(
             publish=lambda type_, data: self._publish(run.id, type_, data),
             persist=self._repo.save_conversation,
             guards=guards,
+            log_call=log_call if log is not None else None,
         )
 
         async def one(conversation: Conversation) -> None:
@@ -350,6 +406,15 @@ class RunOrchestrator:
                     target_name=target.name,
                     target_system_prompt=target.system_prompt,
                     max_turns=run.config.max_turns,
+                    on_call=(
+                        (lambda kind, response, latency_ms, c=conversation: log_call(
+                            kind, c, turn=sum(m.role == "target" for m in c.messages) + (kind == "evaluator_turn"),
+                            model=response.model, input_tokens=response.input_tokens, output_tokens=response.output_tokens,
+                            cost=response.cost, latency_ms=latency_ms, stop_reason=response.stop_reason, output=response.text,
+                        ))
+                        if log is not None
+                        else None
+                    ),
                 )
                 await runner.run(conversation, attacker, target_client, run.config.max_turns)
             async with stats_lock:

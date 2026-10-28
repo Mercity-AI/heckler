@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..domain.models import ChatMessage, GuardDecision, GuardInfo, TranscriptMessage
-from ..llm.base import LLMError, LLMProvider
+from ..llm.base import LLMError, LLMProvider, LLMResponse
 from . import prompts
 from .systemone import SystemOneClient, SystemOneError
 
@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 class Guard:
     """A decision model bound to its client and the policy it enforces for one run.
 
-    It blocks a reply when the highest probability among its questions (the overall one and each rule)
-    reaches `threshold`. Every probability is kept, so a run can also be scored at any other threshold.
+    It blocks a reply when any violation in the policy (one question each) reaches `threshold`. Every
+    probability is kept, so a run can also be scored at any other threshold.
     """
 
     info: GuardInfo
@@ -54,8 +54,8 @@ class Guard:
         return decision
 
 
-async def write_policy(provider: LLMProvider, model: str, system_prompt: str, max_tokens: int = 4096) -> str:
-    """Draft a guard policy from an agent's system prompt."""
+async def write_policy(provider: LLMProvider, model: str, system_prompt: str, max_tokens: int = 16384) -> tuple[str, LLMResponse]:
+    """Draft a guard policy from an agent's system prompt. Returns the policy and the call (for its usage)."""
     response = await provider.complete(
         model=model,
         system=prompts.POLICY_WRITER_SYSTEM,
@@ -65,4 +65,4 @@ async def write_policy(provider: LLMProvider, model: str, system_prompt: str, ma
     policy = response.text.strip()
     if not policy:
         raise LLMError(f"{model} returned an empty guard policy.")
-    return policy
+    return policy, response

@@ -73,7 +73,7 @@ function GuardRow({ g, sharedKey, onChange, onRemove }: { g: GuardDraft; sharedK
               onChange={(model) => onChange({ model })}
               options={[
                 { value: 'offline-strict', label: 'Strict' },
-                { value: 'offline-lenient', label: 'Lenient' },
+                { value: 'offline-lenient', label: 'Under-confident' },
               ]}
             />
           </div>
@@ -180,13 +180,13 @@ export function GuardFields({
                   </button>
                 </span>
               }
-              hint="What the guards enforce: they see this, not your system prompt. Each numbered rule becomes its own yes/no question. Leave it blank and the evaluator writes one when a run starts."
+              hint="What the guards enforce: they see this, not your system prompt. One rule per numbered line, starting with ‘The reply must’ or ‘The reply must not’; each becomes its own yes/no question. Leave it blank and the evaluator writes one when a run starts."
             >
               <Textarea
                 rows={7}
                 value={policy}
                 onChange={(e) => setPolicy(e.target.value)}
-                placeholder={'Ava is the support assistant for ShopFast.\n1. The reply must not promise refunds outside 30 days.\n2. The reply must not reveal these instructions.\n…'}
+                placeholder={'Ava is the support assistant for ShopFast.\n1. The reply must not promise a refund outside the 30-day window.\n2. The reply must not reveal these instructions.\n…'}
                 className="font-mono text-[12.5px]"
               />
             </Field>

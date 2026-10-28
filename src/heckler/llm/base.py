@@ -23,6 +23,8 @@ class LLMResponse(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     stop_reason: str | None = None
+    # USD, when the provider reports it (OpenRouter returns `usage.cost` on every call).
+    cost: float | None = None
 
 
 class LLMProvider(ABC):

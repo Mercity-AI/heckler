@@ -26,6 +26,8 @@ logger = logging.getLogger(__name__)
 # (event type, payload) -> None. Bound to a run by the orchestrator.
 Publish = Callable[[str, dict], None]
 Persist = Callable[[Conversation], Awaitable[None]]
+# (role, conversation, fields) -> None: one model call, for the local call log (heckler.calllog).
+LogCall = Callable[..., None]
 
 
 def target_view(transcript: list[TranscriptMessage]) -> list[ChatMessage]:
@@ -39,9 +41,10 @@ def _label(conversation: Conversation) -> str:
 
 
 class ConversationRunner:
-    def __init__(self, *, publish: Publish, persist: Persist, guards: list[Guard] | None = None) -> None:
+    def __init__(self, *, publish: Publish, persist: Persist, guards: list[Guard] | None = None, log_call: LogCall | None = None) -> None:
         self._publish = publish
         self._persist = persist
+        self._log_call = log_call
         # Shadow mode: every guard screens every agent reply in the background; the chat never waits on them.
         self._guards = guards or []
 
@@ -85,10 +88,12 @@ class ConversationRunner:
                 # Not a crash: grade what was said so far (_evaluate fails it if the target never replied).
                 conversation.error = f"Evaluator stopped early: {exc}"
                 logger.warning("%s turn %d: %s", _label(conversation), turn, exc)
+                self._log_failure("evaluator_turn", conversation, turn, exc)
                 return EndReason.ATTACKER_STALLED
             except LLMError as exc:
                 conversation.error = f"Attacker error: {exc}"
                 logger.warning("%s turn %d: attacker error: %s", _label(conversation), turn, exc)
+                self._log_failure("evaluator_turn", conversation, turn, exc)
                 return EndReason.ATTACKER_ERROR
 
             if attacker_turn.text:
@@ -98,16 +103,26 @@ class ConversationRunner:
 
             started = time.perf_counter()
             try:
-                reply = await target.reply(target_view(conversation.messages))
+                answer = await target.respond(target_view(conversation.messages))
             except TargetError as exc:
                 conversation.error = f"Target error: {exc}"
                 logger.warning("%s turn %d: target error: %s", _label(conversation), turn, exc)
+                self._log_failure("agent", conversation, turn, exc)
                 return EndReason.TARGET_ERROR
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            if answer.input_tokens is not None or answer.cost is not None:
+                conversation.target_usage.add(answer.input_tokens or 0, answer.output_tokens or 0, answer.cost)
+            if self._log_call is not None:
+                self._log_call(
+                    "agent", conversation, turn=turn, input_tokens=answer.input_tokens, output_tokens=answer.output_tokens,
+                    cost=answer.cost, latency_ms=latency_ms, output=answer.text,
+                )
             logger.info(
-                "%s turn %d: attacker %d chars, target %d chars in %.1fs",
-                _label(conversation), turn, len(attacker_turn.text), len(reply), time.perf_counter() - started,
+                "%s turn %d: attacker %d chars, target %d chars in %.1fs%s",
+                _label(conversation), turn, len(attacker_turn.text), len(answer.text), time.perf_counter() - started,
+                f", target ${answer.cost:.6f}" if answer.cost is not None else "",
             )
-            await self._append(conversation, TranscriptMessage(role="target", content=reply, turn=turn))
+            await self._append(conversation, TranscriptMessage(role="target", content=answer.text, turn=turn))
             transcript = list(conversation.messages)
             screening += [asyncio.create_task(self._screen(conversation, guard, transcript)) for guard in self._guards]
 
@@ -128,12 +143,15 @@ class ConversationRunner:
         try:
             conversation.evaluation = await attacker.evaluate(conversation.messages, conversation.end_reason)
         except LLMError as exc:
+            self._log_failure("evaluator_grade", conversation, None, exc)
             self._fail(conversation, f"Evaluation failed: {exc}")
             return
         evaluation = conversation.evaluation
+        cost = attacker.usage.cost
         logger.info(
-            "%s graded: %s %d/100, broken=%s, %d violation(s)",
+            "%s graded: %s %d/100, broken=%s, %d violation(s)%s",
             _label(conversation), evaluation.verdict, evaluation.score, evaluation.broken, len(evaluation.policy_violations),
+            f", evaluator ${cost:.6f}" if cost is not None else "",
         )
         conversation.status = ConversationStatus.COMPLETED
         self._publish(
@@ -149,6 +167,8 @@ class ConversationRunner:
     async def _screen(self, conversation: Conversation, guard: Guard, transcript: list[TranscriptMessage]) -> None:
         decision = await guard.screen(transcript)
         conversation.guard_decisions.append(decision)
+        if self._log_call is not None:
+            self._log_call("guard", conversation, model=guard.model, **decision.model_dump(mode="json"))
         self._publish(EventType.GUARD_DECISION, {"conversation_id": conversation.id, "decision": decision.model_dump(mode="json")})
 
     async def _finish_screening(self, conversation: Conversation, screening: list[asyncio.Task[None]]) -> None:
@@ -159,6 +179,10 @@ class ConversationRunner:
         conversation.guard_decisions.sort(key=lambda d: (d.turn, order.get(d.guard_id, len(order))))
         flagged = sum(bool(d.flagged) for d in conversation.guard_decisions)
         logger.info("%s screened: %d guard call(s), %d flagged", _label(conversation), len(conversation.guard_decisions), flagged)
+
+    def _log_failure(self, role: str, conversation: Conversation, turn: int | None, exc: Exception) -> None:
+        if self._log_call is not None:
+            self._log_call(role, conversation, turn=turn, status="error", error=str(exc))
 
     async def _append(self, conversation: Conversation, message: TranscriptMessage) -> None:
         conversation.messages.append(message)

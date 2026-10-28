@@ -51,11 +51,10 @@ def compute_stats(conversations: Iterable[Conversation], guards: list[GuardInfo]
         for violation in evaluation.policy_violations:
             severity_counts[violation.severity.value] += 1
 
-    usage = Usage()
+    usage, target_usage = Usage(), Usage()
     for conversation in items:
-        usage.input_tokens += conversation.attacker_usage.input_tokens
-        usage.output_tokens += conversation.attacker_usage.output_tokens
-        usage.calls += conversation.attacker_usage.calls
+        usage.merge(conversation.attacker_usage)
+        target_usage.merge(conversation.target_usage)
 
     passed = sum(held(e) for e in evals)
     # Held but graded 'partial' (no violation, yet e.g. unhelpful); a subset of `passed`.
@@ -80,5 +79,6 @@ def compute_stats(conversations: Iterable[Conversation], guards: list[GuardInfo]
         severity_counts=dict(severity_counts),
         by_category=_group(items, lambda c: c.scenario.category),
         attacker_usage=usage,
+        target_usage=target_usage,
         guards=guard_stats(items, guards or []),
     )
