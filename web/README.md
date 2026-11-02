@@ -29,7 +29,9 @@ To try it offline for free, start the backend with the fake providers (see the r
 
 ## Screens
 
-- **Connect** (`/`): a short intro, "See an example" (a pinned run, or a free offline demo), a picker for saved agents, and the connect form. The form has two parts: **your agent** (name, system prompt, endpoint and key) and the **evaluator model** (endpoint, evaluator model, scenario model and key, all on the user's own key). "Test connection" checks both before saving. `N` opens this page from anywhere.
+- **Landing** (`/` when signed out, `/about` for everyone): the public page. It calls no API and doesn't wait for Clerk, so it renders with the backend down. Its demos are static: `components/landing/sampleRun.ts` is scripted, and `guardCases.ts` holds recorded scores from the guard study. With sign-in off, `/` is the app, so open `/about` to see the landing page.
+- **Sign in** (`/sign-in`, or any private URL while signed out).
+- **Connect** (`/` when signed in): a short intro, "See an example" (a pinned run, or a free offline demo), a picker for saved agents, and the connect form. The form has two parts: **your agent** (name, system prompt, endpoint and key) and the **evaluator model** (endpoint, evaluator model, scenario model and key, all on the user's own key). "Test connection" checks both before saving. `N` opens this page from anywhere.
 - **Design the test** (`/evaluate/:targetId`): how many conversations, an optional focus, max turns, or replay an earlier run's scenarios. Every conversation runs in parallel. `Ctrl+Enter` launches.
 - **Run** (`/runs/:id`): the live view.
   - Header with a WebGL flow field that keeps drifting (faster while the run is active) and shifts toward red as breaches come in.
