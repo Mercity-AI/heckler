@@ -15,12 +15,6 @@ const SIMULA = 'https://github.com/Mercity-AI/Simula'
 const SYSTEM_ONE_DOCS = 'https://docs.typesafe.ai/models'
 const STUDY = 'https://www.mercity.ai/blog-post/can-a-decision-model-guard-a-customer-facing-agent/'
 
-const STUDY_FACTS = [
-  { value: '5,620', label: 'replies scored' },
-  { value: '5', label: 'customer-facing agents' },
-  { value: '3', label: 'guards: Jev, Clef, GPT-6.1 Terra' },
-]
-
 const STEPS = [
   { title: 'Connect', body: 'Give Heckler your agent’s endpoint and system prompt. Any OpenAI-compatible API or custom HTTP backend works.' },
   { title: 'Heckle', body: 'Simula maps personas, moods and pressure tactics from your prompt. Each scenario gets its own simulated user, all chatting at once.' },
@@ -204,26 +198,18 @@ function Guards() {
             href={STUDY}
             target="_blank"
             rel="noopener noreferrer"
-            className="group mt-10 grid gap-8 rounded-[22px] bg-white p-6 shadow-[0_30px_80px_-30px_rgb(80_72_229/0.45)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_36px_84px_-28px_rgb(80_72_229/0.55)] sm:p-10 lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-12"
+            className="group mt-8 flex flex-col items-start gap-5 rounded-[20px] bg-white px-5 py-5 shadow-[0_24px_60px_-30px_rgb(80_72_229/0.45)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_30px_66px_-28px_rgb(80_72_229/0.55)] sm:px-7 sm:py-6 lg:flex-row lg:items-center lg:justify-between lg:gap-10"
           >
             <span className="min-w-0">
-              <span className="block font-mono text-[12px] text-dusk-3">Our study, run in Heckler</span>
-              <span className="mt-3 block font-serif text-[30px] leading-[1.1] font-[400] tracking-[-0.015em] text-balance text-dusk sm:text-[40px]">Can a decision model guard a customer-facing agent?</span>
-              <span className="mt-4 block max-w-[560px] text-[16.5px] leading-relaxed text-pretty text-dusk-2">
-                Not on its own. Decision models make a usable first filter, but they score many violations too low to block, and most of their false alarms trace back to how the policy was written.
-              </span>
-              <span className="mt-6 inline-flex h-[46px] items-center gap-2 rounded-full bg-[linear-gradient(100deg,#5048e5,#7a5cf0)] px-5 font-display text-[15px] font-semibold text-white shadow-[0_10px_26px_-10px_rgb(80_72_229/0.75),inset_0_1px_0_rgb(255_255_255/0.25)]">
-                Read the study
-                <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+              <span className="block font-mono text-[12px] text-dusk-3">Our study: 5,620 replies, 5 agents, Jev, Clef and GPT-6.1 Terra</span>
+              <span className="mt-1.5 block font-serif text-[24px] leading-[1.15] font-[420] tracking-[-0.012em] text-balance text-dusk sm:text-[28px]">Can a decision model guard a customer-facing agent?</span>
+              <span className="mt-1.5 block max-w-[720px] text-[15px] leading-normal text-pretty text-dusk-2">
+                Not on its own. They make a usable first filter, but score many violations too low to block.
               </span>
             </span>
-            <span className="grid grid-cols-3 gap-4 border-t border-dusk/10 pt-6 lg:grid-cols-1 lg:content-center lg:gap-5 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-10">
-              {STUDY_FACTS.map((f) => (
-                <span key={f.label}>
-                  <span className="block font-serif text-[30px] leading-none font-[400] tracking-[-0.015em] text-indigo-600 sm:text-[38px]">{f.value}</span>
-                  <span className="mt-1 block text-[13.5px] leading-snug text-dusk-2">{f.label}</span>
-                </span>
-              ))}
+            <span className="inline-flex h-[42px] shrink-0 items-center gap-2 rounded-full bg-[linear-gradient(100deg,#5048e5,#7a5cf0)] px-5 font-display text-[14.5px] font-semibold text-white shadow-[0_10px_26px_-10px_rgb(80_72_229/0.75),inset_0_1px_0_rgb(255_255_255/0.25)]">
+              Read the study
+              <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
             </span>
           </a>
         </Reveal>
