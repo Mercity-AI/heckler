@@ -14,6 +14,7 @@ const GITHUB = 'https://github.com/Mercity-AI/heckler'
 const SIMULA = 'https://github.com/Mercity-AI/Simula'
 const SYSTEM_ONE_DOCS = 'https://docs.typesafe.ai/models'
 const STUDY = 'https://www.mercity.ai/blog-post/can-a-decision-model-guard-a-customer-facing-agent/'
+const REPORT = 'https://www.mercity.ai/blog-post/how-we-built-our-agent-stress-testing-platform-heckler/'
 
 const STEPS = [
   { title: 'Connect', body: 'Give Heckler your agent’s endpoint and system prompt. Any OpenAI-compatible API or custom HTTP backend works.' },
@@ -35,18 +36,28 @@ const FACTS = [
   { title: 'The code is public', body: 'Read it on GitHub, or run your own copy.', href: GITHUB },
 ]
 
+const PRIMARY_BUTTON =
+  'group inline-flex items-center justify-center gap-2 rounded-full bg-[linear-gradient(100deg,#5048e5,#7a5cf0)] font-display font-semibold text-white shadow-[0_10px_26px_-10px_rgb(80_72_229/0.75),inset_0_1px_0_rgb(255_255_255/0.25)] transition-[translate,box-shadow] duration-300 ease-out hover:-translate-y-px hover:shadow-[0_14px_30px_-10px_rgb(80_72_229/0.85),inset_0_1px_0_rgb(255_255_255/0.25)]'
+
+function ButtonArrow() {
+  return <ArrowRight className="size-4 transition-transform duration-300 ease-out group-hover:translate-x-0.5" />
+}
+
 function Primary({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <Link
-      to="/sign-in"
-      className={cn(
-        'group inline-flex items-center justify-center gap-2 rounded-full bg-[linear-gradient(100deg,#5048e5,#7a5cf0)] font-display font-semibold text-white shadow-[0_10px_26px_-10px_rgb(80_72_229/0.75),inset_0_1px_0_rgb(255_255_255/0.25)] transition-[transform,box-shadow] duration-200 hover:-translate-y-px hover:shadow-[0_14px_30px_-10px_rgb(80_72_229/0.85),inset_0_1px_0_rgb(255_255_255/0.25)]',
-        className,
-      )}
-    >
+    <Link to="/sign-in" className={cn(PRIMARY_BUTTON, className)}>
       {children}
-      <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+      <ButtonArrow />
     </Link>
+  )
+}
+
+function ReportLink({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <a href={REPORT} target="_blank" rel="noopener noreferrer" className={cn(PRIMARY_BUTTON, 'whitespace-nowrap', className)}>
+      {children}
+      <ButtonArrow />
+    </a>
   )
 }
 
@@ -84,10 +95,7 @@ function Nav() {
         <a href={GITHUB} target="_blank" rel="noopener noreferrer" className="hidden rounded-full px-3 py-2 font-display text-[14px] font-medium text-dusk-2 transition-colors hover:text-dusk md:block">
           GitHub
         </a>
-        <Link to="/sign-in" className="ml-1 rounded-full px-3 py-2 font-display text-[14px] font-medium text-dusk transition-colors hover:text-indigo-600">
-          Sign in
-        </Link>
-        <Primary className="h-[42px] px-4 text-[14px]">Start testing</Primary>
+        <Primary className="ml-1 h-[42px] px-4 text-[14px] whitespace-nowrap">Start testing</Primary>
       </nav>
     </header>
   )
@@ -103,7 +111,7 @@ function Hero() {
       <div className="mx-auto max-w-[1180px] px-4 pt-[128px] sm:px-6 sm:pt-[150px]">
         <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}>
           <h1 className="max-w-[17ch] font-serif text-[48px] leading-[1] font-[360] tracking-[-0.03em] text-balance text-dusk sm:text-[72px] lg:text-[88px]">
-            See how your agent behaves <em className="font-[380]">before</em> your users do.
+            See how your agent behaves before your users do.
           </h1>
           <div className="mt-7 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <p className="max-w-[580px] text-[17px] leading-relaxed text-pretty text-dusk-2 sm:text-[19px]">
@@ -132,8 +140,9 @@ function Hero() {
 function How() {
   return (
     <section id="how" className="mx-auto max-w-[1180px] px-4 pt-24 pb-28 sm:px-6 sm:pt-32 sm:pb-36">
-      <Reveal>
+      <Reveal className="flex flex-col items-start gap-6 lg:flex-row lg:items-end lg:justify-between">
         <Heading title="Your system prompt is the test plan.">Every rule you wrote is something a user can push on. Click one to see who might turn up.</Heading>
+        <ReportLink className="h-[46px] shrink-0 px-5 text-[15px]">Read the full technical report</ReportLink>
       </Reveal>
       <Reveal className="mt-10">
         <PromptExplorer />
@@ -168,7 +177,16 @@ function Guards() {
       <div className="fangs-up absolute inset-x-0 -bottom-px h-5" />
       <div className="mx-auto max-w-[1180px] px-4 pt-24 pb-28 sm:px-6 sm:pt-32 sm:pb-36">
         <Reveal>
-          <Heading title="Add a guard. See what it would have stopped.">
+          <Heading
+            className="max-w-[780px]"
+            title={
+              <>
+                Add a guard.
+                <br />
+                See what it would have stopped.
+              </>
+            }
+          >
             Decision models like Jev, Clef and Laya write no text. They read a reply and answer yes or no with a probability, in about a second, so you can run one on every reply. Add one to an agent and Heckler measures it before it blocks anybody.
           </Heading>
         </Reveal>
@@ -198,7 +216,7 @@ function Guards() {
             href={STUDY}
             target="_blank"
             rel="noopener noreferrer"
-            className="group mt-8 flex flex-col items-start gap-5 rounded-[20px] bg-white px-5 py-5 shadow-[0_24px_60px_-30px_rgb(80_72_229/0.45)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_30px_66px_-28px_rgb(80_72_229/0.55)] sm:px-7 sm:py-6 lg:flex-row lg:items-center lg:justify-between lg:gap-10"
+            className="group mt-8 flex flex-col items-start gap-5 rounded-[20px] bg-white px-5 py-5 shadow-[0_24px_60px_-30px_rgb(80_72_229/0.45)] transition-[translate,box-shadow] duration-500 ease-out hover:-translate-y-0.5 hover:shadow-[0_30px_66px_-28px_rgb(80_72_229/0.55)] sm:px-7 sm:py-6 lg:flex-row lg:items-center lg:justify-between lg:gap-10"
           >
             <span className="min-w-0">
               <span className="block font-mono text-[12px] text-dusk-3">Our study: 5,620 replies, 5 agents, Jev, Clef and GPT-6.1 Terra</span>
@@ -209,7 +227,7 @@ function Guards() {
             </span>
             <span className="inline-flex h-[42px] shrink-0 items-center gap-2 rounded-full bg-[linear-gradient(100deg,#5048e5,#7a5cf0)] px-5 font-display text-[14.5px] font-semibold text-white shadow-[0_10px_26px_-10px_rgb(80_72_229/0.75),inset_0_1px_0_rgb(255_255_255/0.25)]">
               Read the study
-              <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+              <ArrowRight className="size-4 transition-transform duration-500 ease-out group-hover:translate-x-0.5" />
             </span>
           </a>
         </Reveal>
