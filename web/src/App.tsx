@@ -1,7 +1,7 @@
 import { Menu } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useState } from 'react'
-import { Link, Route, Routes, useLocation, useNavigate, useOutlet } from 'react-router'
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useOutlet } from 'react-router'
 import { Sidebar } from './components/Sidebar'
 import { HecklerMark, HecklerWordmark, MercityLogoLink } from './components/brand'
 import { Drawer } from './components/ui/overlay'
@@ -9,6 +9,7 @@ import { Card, EmptyState } from './components/ui/primitives'
 import { AgentsPage } from './pages/Agents'
 import { DesignPage } from './pages/Design'
 import { HomePage } from './pages/Home'
+import { LandingPage } from './pages/Landing'
 import { PrivacyPage, TermsPage } from './pages/Legal'
 import { RunsPage } from './pages/Runs'
 import { RunViewPage } from './pages/RunView'
@@ -101,6 +102,9 @@ export default function App() {
     <Routes>
       <Route path="privacy" element={<PrivacyPage />} />
       <Route path="terms" element={<TermsPage />} />
+      <Route path="about" element={<LandingPage />} />
+      {/* AuthGate shows the sign-in screen here when signed out; signed in (or sign-in off) there's nothing to do */}
+      <Route path="sign-in" element={<Navigate to="/" replace />} />
       <Route element={<Shell />}>
         <Route index element={<HomePage />} />
         <Route path="evaluate/:targetId" element={<DesignPage />} />
