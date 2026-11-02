@@ -15,6 +15,12 @@ const SIMULA = 'https://github.com/Mercity-AI/Simula'
 const SYSTEM_ONE_DOCS = 'https://docs.typesafe.ai/models'
 const STUDY = 'https://www.mercity.ai/blog-post/can-a-decision-model-guard-a-customer-facing-agent/'
 
+const STUDY_FACTS = [
+  { value: '5,620', label: 'replies scored' },
+  { value: '5', label: 'customer-facing agents' },
+  { value: '3', label: 'guards: Jev, Clef, GPT-6.1 Terra' },
+]
+
 const STEPS = [
   { title: 'Connect', body: 'Give Heckler your agent’s endpoint and system prompt. Any OpenAI-compatible API or custom HTTP backend works.' },
   { title: 'Heckle', body: 'Simula maps personas, moods and pressure tactics from your prompt. Each scenario gets its own simulated user, all chatting at once.' },
@@ -194,12 +200,31 @@ function Guards() {
             </a>
             , Laya included.
           </p>
-          <a href={STUDY} target="_blank" rel="noopener noreferrer" className="group mt-7 flex items-center gap-4 border-t border-dusk/15 pt-4">
+          <a
+            href={STUDY}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group mt-10 grid gap-8 rounded-[22px] bg-white p-6 shadow-[0_30px_80px_-30px_rgb(80_72_229/0.45)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_36px_84px_-28px_rgb(80_72_229/0.55)] sm:p-10 lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-12"
+          >
             <span className="min-w-0">
-              <span className="block font-serif text-[20px] leading-snug font-[420] text-dusk group-hover:text-indigo-700">Can a decision model guard a customer-facing agent?</span>
-              <span className="mt-0.5 block text-[14.5px] leading-normal text-pretty text-dusk-2">Our study of Jev, Clef and GPT-6.1 Terra on 5,620 replies from five agents, run in Heckler.</span>
+              <span className="block font-mono text-[12px] text-dusk-3">Our study, run in Heckler</span>
+              <span className="mt-3 block font-serif text-[30px] leading-[1.1] font-[400] tracking-[-0.015em] text-balance text-dusk sm:text-[40px]">Can a decision model guard a customer-facing agent?</span>
+              <span className="mt-4 block max-w-[560px] text-[16.5px] leading-relaxed text-pretty text-dusk-2">
+                Not on its own. Decision models make a usable first filter, but they score many violations too low to block, and most of their false alarms trace back to how the policy was written.
+              </span>
+              <span className="mt-6 inline-flex h-[46px] items-center gap-2 rounded-full bg-[linear-gradient(100deg,#5048e5,#7a5cf0)] px-5 font-display text-[15px] font-semibold text-white shadow-[0_10px_26px_-10px_rgb(80_72_229/0.75),inset_0_1px_0_rgb(255_255_255/0.25)]">
+                Read the study
+                <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+              </span>
             </span>
-            <ArrowRight className="ml-auto size-5 shrink-0 text-dusk-2 transition-transform duration-200 group-hover:translate-x-1 group-hover:text-indigo-700" />
+            <span className="grid grid-cols-3 gap-4 border-t border-dusk/10 pt-6 lg:grid-cols-1 lg:content-center lg:gap-5 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-10">
+              {STUDY_FACTS.map((f) => (
+                <span key={f.label}>
+                  <span className="block font-serif text-[30px] leading-none font-[400] tracking-[-0.015em] text-indigo-600 sm:text-[38px]">{f.value}</span>
+                  <span className="mt-1 block text-[13.5px] leading-snug text-dusk-2">{f.label}</span>
+                </span>
+              ))}
+            </span>
           </a>
         </Reveal>
       </div>
